@@ -225,7 +225,7 @@ async function sendVerificationEmail(
 
         body: JSON.stringify({
           from:
-            "VELORA <onboarding@resend.dev>",
+            "VELORA <noreply@velorataki.com>",
 
           to: [
             email
@@ -291,7 +291,7 @@ async function sendPasswordResetEmail(
 
         body: JSON.stringify({
           from:
-            "VELORA <onboarding@resend.dev>",
+            "VELORA <noreply@velorataki.com>",
 
           to: [
             email
@@ -2794,7 +2794,7 @@ ${order.total || 0} TL
 
         body: JSON.stringify({
           from:
-            "VELORA <onboarding@resend.dev>",
+            "VELORA <noreply@velorataki.com>",
 
           to:
             ["delivered@resend.dev"],
