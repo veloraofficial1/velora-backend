@@ -6,6 +6,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const Database = require("better-sqlite3");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -14,6 +15,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!JWT_SECRET) {
   console.error("JWT_SECRET eksik!");
@@ -29,6 +34,21 @@ if (!ADMIN_PASSWORD) {
   console.error("ADMIN_PASSWORD eksik!");
   process.exit(1);
 }
+
+if (!SUPABASE_URL) {
+  console.error("SUPABASE_URL eksik!");
+  process.exit(1);
+}
+
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("SUPABASE_SERVICE_ROLE_KEY eksik!");
+  process.exit(1);
+}
+
+const supabase = createClient(
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY
+);
 
 /* =========================
    MIDDLEWARE
@@ -180,6 +200,165 @@ function authenticateAdmin(req, res, next) {
     });
   }
 }
+
+/* =========================
+   SUPABASE MIGRATION
+   GEÇİCİ ENDPOINT
+========================= */
+
+app.post(
+  "/api/admin/migrate-to-supabase",
+  authenticateAdmin,
+  async (req, res) => {
+    try {
+      console.log("SUPABASE VERİ TAŞIMA BAŞLADI...");
+
+      const users = db.prepare(`
+        SELECT
+          id,
+          username,
+          email,
+          password_hash,
+          created_at,
+          email_verified,
+          verification_code_hash,
+          verification_expires_at
+        FROM users
+        ORDER BY id ASC
+      `).all();
+
+      const orders = db.prepare(`
+        SELECT
+          id,
+          user_id,
+          customer_name,
+          customer_phone,
+          customer_address,
+          customer_note,
+          items_json,
+          total,
+          status,
+          created_at
+        FROM orders
+        ORDER BY id ASC
+      `).all();
+
+      let usersInserted = 0;
+      let ordersInserted = 0;
+
+      /* =========================
+         USERS
+      ========================= */
+
+      for (const user of users) {
+        const { error } = await supabase
+          .from("users")
+          .upsert(
+            {
+              id: user.id,
+              username: user.username,
+              email: user.email,
+              password_hash: user.password_hash,
+              created_at: user.created_at,
+              email_verified: user.email_verified,
+              verification_code_hash:
+                user.verification_code_hash,
+              verification_expires_at:
+                user.verification_expires_at
+            },
+            {
+              onConflict: "id"
+            }
+          );
+
+        if (error) {
+          console.error(
+            "USER TAŞIMA HATASI:",
+            user.id,
+            error
+          );
+
+          return res.status(500).json({
+            success: false,
+            message:
+              `Kullanıcı ${user.id} taşınamadı.`,
+            error: error.message
+          });
+        }
+
+        usersInserted++;
+      }
+
+      /* =========================
+         ORDERS
+      ========================= */
+
+      for (const order of orders) {
+        const { error } = await supabase
+          .from("orders")
+          .upsert(
+            {
+              id: order.id,
+              user_id: order.user_id,
+              customer_name: order.customer_name,
+              customer_phone: order.customer_phone,
+              customer_address: order.customer_address,
+              customer_note: order.customer_note,
+              items_json: order.items_json,
+              total: Number(order.total) || 0,
+              status: order.status || "Yeni",
+              created_at: order.created_at
+            },
+            {
+              onConflict: "id"
+            }
+          );
+
+        if (error) {
+          console.error(
+            "ORDER TAŞIMA HATASI:",
+            order.id,
+            error
+          );
+
+          return res.status(500).json({
+            success: false,
+            message:
+              `Sipariş ${order.id} taşınamadı.`,
+            error: error.message
+          });
+        }
+
+        ordersInserted++;
+      }
+
+      console.log(
+        `TAŞIMA TAMAMLANDI: ${usersInserted} kullanıcı, ${ordersInserted} sipariş`
+      );
+
+      return res.json({
+        success: true,
+        message:
+          "SQLite verileri Supabase'e aktarıldı.",
+        users: usersInserted,
+        orders: ordersInserted
+      });
+
+    } catch (error) {
+      console.error(
+        "SUPABASE MIGRATION ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Veri aktarımı sırasında hata oluştu.",
+        error: error.message
+      });
+    }
+  }
+);
 
 /* =========================
    RESEND EMAIL
@@ -398,15 +577,16 @@ app.post("/api/auth/register", async (req, res) => {
         emailError
       );
 
-      db.prepare(`
-        DELETE FROM users
-        WHERE id = ?
-      `).run(result.lastInsertRowid);
+      /*
+       * ÖNEMLİ:
+       * Artık kullanıcıyı silmiyoruz.
+       * E-posta gönderilemese bile hesap SQLite'ta kalıyor.
+       */
 
       return res.status(500).json({
         success: false,
         message:
-          "Doğrulama e-postası gönderilemedi. Lütfen daha sonra tekrar deneyin."
+          "Hesap oluşturuldu ancak doğrulama e-postası gönderilemedi. Lütfen yeni doğrulama kodu iste."
       });
     }
 
@@ -1607,6 +1787,10 @@ app.listen(
 
     console.log(
       "Admin login: POST /api/admin/login"
+    );
+
+    console.log(
+      "Supabase bağlantısı hazır."
     );
   }
 );
