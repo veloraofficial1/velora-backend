@@ -226,6 +226,50 @@ Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
 }
 
 /* =========================
+   PASSWORD RESET EMAIL
+========================= */
+
+async function sendPasswordResetEmail(email, code) {
+  if (!RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY eksik.");
+  }
+
+  const response = await fetch(
+    "https://api.resend.com/emails",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: "VELORA <onboarding@resend.dev>",
+        to: [email],
+        subject: "VELORA Şifre Sıfırlama Kodu",
+        text:
+`VELORA şifreni sıfırlamak için kodun:
+
+${code}
+
+Bu kod 10 dakika geçerlidir.
+
+Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+
+    throw new Error(
+      `Resend hata: ${response.status} ${text}`
+    );
+  }
+
+  return true;
+}
+
+/* =========================
    ANA SAYFA
 ========================= */
 
@@ -753,7 +797,7 @@ app.post(
         user.id
       );
 
-      await sendVerificationEmail(
+      await sendPasswordResetEmail(
         email,
         code
       );
