@@ -111,8 +111,15 @@ function createToken(payload) {
 ========================= */
 
 function normalizePhone(phone) {
+
   let cleanPhone = String(phone || "")
     .replace(/\D/g, "");
+
+  /*
+    905551234567
+    ->
+    05551234567
+  */
 
   if (
     cleanPhone.startsWith("90") &&
@@ -120,6 +127,20 @@ function normalizePhone(phone) {
   ) {
     cleanPhone =
       "0" + cleanPhone.slice(2);
+  }
+
+  /*
+    5551234567
+    ->
+    05551234567
+  */
+
+  if (
+    cleanPhone.length === 10 &&
+    cleanPhone.startsWith("5")
+  ) {
+    cleanPhone =
+      "0" + cleanPhone;
   }
 
   return cleanPhone;
@@ -135,10 +156,12 @@ function authenticateUser(
   res,
   next
 ) {
+
   const auth =
     req.headers.authorization || "";
 
   if (!auth.startsWith("Bearer ")) {
+
     return res.status(401).json({
       success: false,
       message:
@@ -150,6 +173,7 @@ function authenticateUser(
     auth.substring(7);
 
   try {
+
     const decoded =
       jwt.verify(
         token,
@@ -180,10 +204,12 @@ function authenticateAdmin(
   res,
   next
 ) {
+
   const auth =
     req.headers.authorization || "";
 
   if (!auth.startsWith("Bearer ")) {
+
     return res.status(401).json({
       success: false,
       message:
@@ -205,6 +231,7 @@ function authenticateAdmin(
     if (
       decoded.role !== "admin"
     ) {
+
       return res.status(403).json({
         success: false,
         message:
@@ -406,10 +433,12 @@ app.post(
         passwordConfirm
       } = req.body;
 
+
       const cleanUsername =
         String(
           username || ""
         ).trim();
+
 
       const cleanEmail =
         String(
@@ -418,8 +447,14 @@ app.post(
           .trim()
           .toLowerCase();
 
+
       const cleanPhone =
         normalizePhone(phone);
+
+
+      /* =========================
+         TEMEL KONTROLLER
+      ========================= */
 
       if (
         !cleanUsername ||
@@ -436,6 +471,11 @@ app.post(
         });
       }
 
+
+      /* =========================
+         TELEFON FORMAT
+      ========================= */
+
       if (
         !/^05[0-9]{9}$/.test(
           cleanPhone
@@ -449,6 +489,11 @@ app.post(
         });
       }
 
+
+      /* =========================
+         ŞİFRE
+      ========================= */
+
       if (
         password !==
         passwordConfirm
@@ -460,6 +505,7 @@ app.post(
             "Şifreler aynı değil."
         });
       }
+
 
       if (
         password.length < 6
@@ -473,10 +519,12 @@ app.post(
       }
 
 
-      /* USERNAME */
+      /* =========================
+         USERNAME KONTROL
+      ========================= */
 
       const {
-        data: usernameUser,
+        data: usernameUsers,
         error: usernameError
       } = await supabase
         .from("users")
@@ -485,7 +533,8 @@ app.post(
           "username",
           cleanUsername
         )
-        .maybeSingle();
+        .limit(1);
+
 
       if (usernameError) {
 
@@ -501,7 +550,11 @@ app.post(
         });
       }
 
-      if (usernameUser) {
+
+      if (
+        Array.isArray(usernameUsers) &&
+        usernameUsers.length > 0
+      ) {
 
         return res.status(409).json({
           success: false,
@@ -511,10 +564,12 @@ app.post(
       }
 
 
-      /* EMAIL */
+      /* =========================
+         EMAIL KONTROL
+      ========================= */
 
       const {
-        data: emailUser,
+        data: emailUsers,
         error: emailError
       } = await supabase
         .from("users")
@@ -523,7 +578,8 @@ app.post(
           "email",
           cleanEmail
         )
-        .maybeSingle();
+        .limit(1);
+
 
       if (emailError) {
 
@@ -539,7 +595,11 @@ app.post(
         });
       }
 
-      if (emailUser) {
+
+      if (
+        Array.isArray(emailUsers) &&
+        emailUsers.length > 0
+      ) {
 
         return res.status(409).json({
           success: false,
@@ -549,19 +609,24 @@ app.post(
       }
 
 
-      /* PHONE */
+      /* =========================
+         PHONE KONTROL
+         ÖNEMLİ:
+         maybeSingle() YOK.
+      ========================= */
 
       const {
-        data: phoneUser,
+        data: phoneUsers,
         error: phoneError
       } = await supabase
         .from("users")
-        .select("id")
+        .select("id, phone")
         .eq(
           "phone",
           cleanPhone
         )
-        .maybeSingle();
+        .limit(1);
+
 
       if (phoneError) {
 
@@ -570,14 +635,24 @@ app.post(
           phoneError
         );
 
+        /*
+          Burada artık "Telefon numarası kontrolü başarısız"
+          gibi belirsiz hata yerine Supabase'in gerçek
+          hata bilgisini logluyoruz.
+        */
+
         return res.status(500).json({
           success: false,
           message:
-            "Telefon numarası kontrolü başarısız."
+            "Telefon numarası kontrolü başarısız. Sunucu kayıtları kontrol ediliyor."
         });
       }
 
-      if (phoneUser) {
+
+      if (
+        Array.isArray(phoneUsers) &&
+        phoneUsers.length > 0
+      ) {
 
         return res.status(409).json({
           success: false,
@@ -587,7 +662,9 @@ app.post(
       }
 
 
-      /* ŞİFRE */
+      /* =========================
+         ŞİFRE HASH
+      ========================= */
 
       const passwordHash =
         await bcrypt.hash(
@@ -596,7 +673,9 @@ app.post(
         );
 
 
-      /* DOĞRULAMA KODU */
+      /* =========================
+         DOĞRULAMA KODU
+      ========================= */
 
       const verificationCode =
         crypto
@@ -606,11 +685,13 @@ app.post(
           )
           .toString();
 
+
       const verificationCodeHash =
         await bcrypt.hash(
           verificationCode,
           10
         );
+
 
       const verificationExpiresAt =
         new Date(
@@ -618,11 +699,14 @@ app.post(
           10 * 60 * 1000
         ).toISOString();
 
+
       const createdAt =
         new Date().toISOString();
 
 
-      /* USER OLUŞTUR */
+      /* =========================
+         USER OLUŞTUR
+      ========================= */
 
       const {
         data: newUser,
@@ -661,12 +745,14 @@ app.post(
         )
         .single();
 
+
       if (insertError) {
 
         console.error(
           "SUPABASE REGISTER ERROR:",
           insertError
         );
+
 
         if (
           insertError.code ===
@@ -691,6 +777,7 @@ app.post(
               )
             ).toLowerCase();
 
+
           if (
             errorText.includes(
               "phone"
@@ -704,6 +791,7 @@ app.post(
             });
           }
 
+
           if (
             errorText.includes(
               "email"
@@ -716,6 +804,7 @@ app.post(
                 "Bu e-posta zaten kayıtlı."
             });
           }
+
 
           if (
             errorText.includes(
@@ -731,6 +820,7 @@ app.post(
           }
         }
 
+
         return res.status(500).json({
           success: false,
           message:
@@ -739,7 +829,9 @@ app.post(
       }
 
 
-      /* DOĞRULAMA MAİLİ */
+      /* =========================
+         DOĞRULAMA MAİLİ
+      ========================= */
 
       try {
 
@@ -774,6 +866,7 @@ app.post(
           newUser.id
 
       });
+
 
     } catch (error) {
 
@@ -833,6 +926,7 @@ app.post(
           "email",
           email
         )
+        .limit(1)
         .maybeSingle();
 
       if (error) {
@@ -1006,6 +1100,7 @@ app.post(
           "email",
           email
         )
+        .limit(1)
         .maybeSingle();
 
       if (error) {
@@ -1157,7 +1252,6 @@ app.post(
         password
       } = req.body;
 
-
       const loginValue =
         String(
           login ||
@@ -1165,7 +1259,6 @@ app.post(
           email ||
           ""
         ).trim();
-
 
       if (
         !loginValue ||
@@ -1179,9 +1272,6 @@ app.post(
         });
       }
 
-
-      /* KULLANICI ADI */
-
       const {
         data: usernameUser,
         error: usernameError
@@ -1192,8 +1282,8 @@ app.post(
           "username",
           loginValue
         )
+        .limit(1)
         .maybeSingle();
-
 
       if (usernameError) {
 
@@ -1209,12 +1299,8 @@ app.post(
         });
       }
 
-
       let user =
         usernameUser;
-
-
-      /* E-POSTA */
 
       if (!user) {
 
@@ -1228,8 +1314,8 @@ app.post(
             "email",
             loginValue.toLowerCase()
           )
+          .limit(1)
           .maybeSingle();
-
 
         if (emailError) {
 
@@ -1249,7 +1335,6 @@ app.post(
           emailUser;
       }
 
-
       if (!user) {
 
         return res.status(401).json({
@@ -1258,9 +1343,6 @@ app.post(
             "Kullanıcı adı veya şifre yanlış."
         });
       }
-
-
-      /* E-POSTA DOĞRULANDI MI? */
 
       if (
         Number(
@@ -1275,9 +1357,6 @@ app.post(
         });
       }
 
-
-      /* ŞİFRE */
-
       if (
         !user.password_hash
       ) {
@@ -1289,13 +1368,11 @@ app.post(
         });
       }
 
-
       const passwordCorrect =
         await bcrypt.compare(
           password,
           user.password_hash
         );
-
 
       if (!passwordCorrect) {
 
@@ -1305,7 +1382,6 @@ app.post(
             "Kullanıcı adı veya şifre yanlış."
         });
       }
-
 
       const safeUser = {
 
@@ -1326,12 +1402,10 @@ app.post(
 
       };
 
-
       const token =
         createToken(
           safeUser
         );
-
 
       return res.json({
 
@@ -1383,7 +1457,6 @@ app.post(
           .trim()
           .toLowerCase();
 
-
       if (!email) {
 
         return res.status(400).json({
@@ -1392,7 +1465,6 @@ app.post(
             "E-posta gerekli."
         });
       }
-
 
       const {
         data: user,
@@ -1404,8 +1476,8 @@ app.post(
           "email",
           email
         )
+        .limit(1)
         .maybeSingle();
-
 
       if (error) {
 
@@ -1421,7 +1493,6 @@ app.post(
         });
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -1431,7 +1502,6 @@ app.post(
         });
       }
 
-
       const code =
         crypto
           .randomInt(
@@ -1440,20 +1510,17 @@ app.post(
           )
           .toString();
 
-
       const codeHash =
         await bcrypt.hash(
           code,
           10
         );
 
-
       const expiresAt =
         new Date(
           Date.now() +
           10 * 60 * 1000
         ).toISOString();
-
 
       const {
         error: updateError
@@ -1473,7 +1540,6 @@ app.post(
           user.id
         );
 
-
       if (updateError) {
 
         console.error(
@@ -1488,12 +1554,10 @@ app.post(
         });
       }
 
-
       await sendPasswordResetEmail(
         email,
         code
       );
-
 
       return res.json({
         success: true,
@@ -1535,14 +1599,12 @@ app.post(
         passwordConfirm
       } = req.body;
 
-
       const cleanEmail =
         String(
           email || ""
         )
           .trim()
           .toLowerCase();
-
 
       if (
         !cleanEmail ||
@@ -1558,7 +1620,6 @@ app.post(
         });
       }
 
-
       if (
         password !==
         passwordConfirm
@@ -1571,7 +1632,6 @@ app.post(
         });
       }
 
-
       if (
         password.length < 6
       ) {
@@ -1583,7 +1643,6 @@ app.post(
         });
       }
 
-
       const {
         data: user,
         error
@@ -1594,8 +1653,8 @@ app.post(
           "email",
           cleanEmail
         )
+        .limit(1)
         .maybeSingle();
-
 
       if (error) {
 
@@ -1611,7 +1670,6 @@ app.post(
         });
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -1620,7 +1678,6 @@ app.post(
             "Kullanıcı bulunamadı."
         });
       }
-
 
       if (
         !user.verification_code_hash ||
@@ -1633,7 +1690,6 @@ app.post(
             "Geçerli bir kod bulunamadı."
         });
       }
-
 
       if (
         new Date(
@@ -1649,13 +1705,11 @@ app.post(
         });
       }
 
-
       const codeCorrect =
         await bcrypt.compare(
           String(code).trim(),
           user.verification_code_hash
         );
-
 
       if (!codeCorrect) {
 
@@ -1666,13 +1720,11 @@ app.post(
         });
       }
 
-
       const passwordHash =
         await bcrypt.hash(
           password,
           12
         );
-
 
       const {
         error: updateError
@@ -1695,7 +1747,6 @@ app.post(
           user.id
         );
 
-
       if (updateError) {
 
         console.error(
@@ -1709,7 +1760,6 @@ app.post(
             "Şifre değiştirilemedi."
         });
       }
-
 
       return res.json({
         success: true,
@@ -1757,13 +1807,11 @@ app.post(
         });
       }
 
-
       const {
         currentPassword,
         newPassword,
         newPasswordConfirm
       } = req.body;
-
 
       if (
         !currentPassword ||
@@ -1778,7 +1826,6 @@ app.post(
         });
       }
 
-
       if (
         newPassword !==
         newPasswordConfirm
@@ -1791,7 +1838,6 @@ app.post(
         });
       }
 
-
       if (
         newPassword.length < 6
       ) {
@@ -1803,7 +1849,6 @@ app.post(
         });
       }
 
-
       const {
         data: user,
         error
@@ -1814,8 +1859,8 @@ app.post(
           "id",
           req.user.id
         )
+        .limit(1)
         .maybeSingle();
-
 
       if (error) {
 
@@ -1831,7 +1876,6 @@ app.post(
         });
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -1841,13 +1885,11 @@ app.post(
         });
       }
 
-
       const correct =
         await bcrypt.compare(
           currentPassword,
           user.password_hash
         );
-
 
       if (!correct) {
 
@@ -1858,13 +1900,11 @@ app.post(
         });
       }
 
-
       const newHash =
         await bcrypt.hash(
           newPassword,
           12
         );
-
 
       const {
         error: updateError
@@ -1881,7 +1921,6 @@ app.post(
           req.user.id
         );
 
-
       if (updateError) {
 
         console.error(
@@ -1895,7 +1934,6 @@ app.post(
             "Şifre değiştirilemedi."
         });
       }
-
 
       return res.json({
         success: true,
@@ -1943,7 +1981,6 @@ app.get(
         });
       }
 
-
       const {
         data: user,
         error
@@ -1956,8 +1993,8 @@ app.get(
           "id",
           req.user.id
         )
+        .limit(1)
         .maybeSingle();
-
 
       if (error) {
 
@@ -1973,7 +2010,6 @@ app.get(
         });
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -1982,7 +2018,6 @@ app.get(
             "Kullanıcı bulunamadı."
         });
       }
-
 
       return res.json({
 
@@ -2036,7 +2071,6 @@ app.get(
         });
       }
 
-
       const {
         data: favorites,
         error
@@ -2056,7 +2090,6 @@ app.get(
           }
         );
 
-
       if (error) {
 
         console.error(
@@ -2070,7 +2103,6 @@ app.get(
             "Favoriler alınamadı."
         });
       }
-
 
       return res.json({
 
@@ -2121,12 +2153,10 @@ app.post(
         });
       }
 
-
       const productId =
         Number(
           req.body.productId
         );
-
 
       if (
         !Number.isInteger(
@@ -2141,7 +2171,6 @@ app.post(
             "Geçersiz ürün ID."
         });
       }
-
 
       const {
         data: favorite,
@@ -2162,10 +2191,7 @@ app.post(
         )
         .single();
 
-
       if (error) {
-
-        /* ZATEN FAVORİDEYSE */
 
         if (
           error.code ===
@@ -2187,8 +2213,8 @@ app.post(
               "product_id",
               productId
             )
+            .limit(1)
             .maybeSingle();
-
 
           return res.json({
 
@@ -2203,7 +2229,6 @@ app.post(
           });
         }
 
-
         console.error(
           "ADD FAVORITE ERROR:",
           error
@@ -2215,7 +2240,6 @@ app.post(
             "Favori eklenemedi."
         });
       }
-
 
       return res.status(201).json({
 
@@ -2269,12 +2293,10 @@ app.delete(
         });
       }
 
-
       const productId =
         Number(
           req.params.productId
         );
-
 
       if (
         !Number.isInteger(
@@ -2290,7 +2312,6 @@ app.delete(
         });
       }
 
-
       const {
         error
       } = await supabase
@@ -2305,7 +2326,6 @@ app.delete(
           productId
         );
 
-
       if (error) {
 
         console.error(
@@ -2319,7 +2339,6 @@ app.delete(
             "Favori silinemedi."
         });
       }
-
 
       return res.json({
 
@@ -2370,7 +2389,6 @@ app.get(
         });
       }
 
-
       const {
         data: orders,
         error
@@ -2388,7 +2406,6 @@ app.get(
           }
         );
 
-
       if (error) {
 
         console.error(
@@ -2402,7 +2419,6 @@ app.get(
             "Siparişler alınamadı."
         });
       }
-
 
       return res.json({
 
@@ -2445,7 +2461,6 @@ app.post(
         password
       } = req.body;
 
-
       if (
         !username ||
         !password
@@ -2457,7 +2472,6 @@ app.post(
             "Admin kullanıcı adı ve şifre gerekli."
         });
       }
-
 
       if (
         username !==
@@ -2473,7 +2487,6 @@ app.post(
         });
       }
 
-
       const admin = {
 
         username:
@@ -2484,12 +2497,10 @@ app.post(
 
       };
 
-
       const token =
         createToken(
           admin
         );
-
 
       return res.json({
 
@@ -2549,11 +2560,9 @@ app.get(
           }
         );
 
-
       if (userError) {
         throw userError;
       }
-
 
       const {
         count: orderCount,
@@ -2570,11 +2579,9 @@ app.get(
           }
         );
 
-
       if (orderError) {
         throw orderError;
       }
-
 
       const {
         count: newOrderCount,
@@ -2595,11 +2602,9 @@ app.get(
           "Yeni"
         );
 
-
       if (newOrderError) {
         throw newOrderError;
       }
-
 
       const {
         data: totals,
@@ -2610,14 +2615,11 @@ app.get(
           "total, status"
         );
 
-
       if (totalError) {
         throw totalError;
       }
 
-
       let totalAmount = 0;
-
 
       for (
         const order of
@@ -2635,7 +2637,6 @@ app.get(
             ) || 0;
         }
       }
-
 
       return res.json({
 
@@ -2703,11 +2704,9 @@ app.get(
           }
         );
 
-
       if (error) {
         throw error;
       }
-
 
       return res.json({
 
@@ -2751,7 +2750,6 @@ app.delete(
           req.params.id
         );
 
-
       if (
         !Number.isInteger(id)
       ) {
@@ -2763,7 +2761,6 @@ app.delete(
         });
       }
 
-
       const {
         data: user,
         error: findError
@@ -2774,13 +2771,12 @@ app.delete(
           "id",
           id
         )
+        .limit(1)
         .maybeSingle();
-
 
       if (findError) {
         throw findError;
       }
-
 
       if (!user) {
 
@@ -2790,7 +2786,6 @@ app.delete(
             "Kullanıcı bulunamadı."
         });
       }
-
 
       const {
         error: deleteError
@@ -2802,11 +2797,9 @@ app.delete(
           id
         );
 
-
       if (deleteError) {
         throw deleteError;
       }
-
 
       return res.json({
 
@@ -2859,11 +2852,9 @@ app.get(
           }
         );
 
-
       if (error) {
         throw error;
       }
-
 
       return res.json({
 
@@ -2911,7 +2902,6 @@ app.patch(
         status
       } = req.body;
 
-
       const allowedStatuses = [
 
         "Yeni",
@@ -2926,7 +2916,6 @@ app.patch(
 
       ];
 
-
       if (
         !Number.isInteger(id)
       ) {
@@ -2937,7 +2926,6 @@ app.patch(
             "Geçersiz sipariş ID."
         });
       }
-
 
       if (
         !allowedStatuses.includes(
@@ -2952,7 +2940,6 @@ app.patch(
         });
       }
 
-
       const {
         data: existingOrder,
         error: findError
@@ -2963,13 +2950,12 @@ app.patch(
           "id",
           id
         )
+        .limit(1)
         .maybeSingle();
-
 
       if (findError) {
         throw findError;
       }
-
 
       if (!existingOrder) {
 
@@ -2979,7 +2965,6 @@ app.patch(
             "Sipariş bulunamadı."
         });
       }
-
 
       const {
         error: updateError
@@ -2996,11 +2981,9 @@ app.patch(
           id
         );
 
-
       if (updateError) {
         throw updateError;
       }
-
 
       return res.json({
 
@@ -3044,7 +3027,6 @@ app.delete(
           req.params.id
         );
 
-
       if (
         !Number.isInteger(id)
       ) {
@@ -3056,7 +3038,6 @@ app.delete(
         });
       }
 
-
       const {
         data: order,
         error: findError
@@ -3067,13 +3048,12 @@ app.delete(
           "id",
           id
         )
+        .limit(1)
         .maybeSingle();
-
 
       if (findError) {
         throw findError;
       }
-
 
       if (!order) {
 
@@ -3083,7 +3063,6 @@ app.delete(
             "Sipariş bulunamadı."
         });
       }
-
 
       const {
         error: deleteError
@@ -3095,11 +3074,9 @@ app.delete(
           id
         );
 
-
       if (deleteError) {
         throw deleteError;
       }
-
 
       return res.json({
 
@@ -3150,7 +3127,6 @@ app.post(
         });
       }
 
-
       const {
         customerName,
         customerPhone,
@@ -3159,7 +3135,6 @@ app.post(
         items,
         total
       } = req.body;
-
 
       if (
         !customerName ||
@@ -3175,7 +3150,6 @@ app.post(
         });
       }
 
-
       if (
         !Array.isArray(items)
       ) {
@@ -3187,16 +3161,13 @@ app.post(
         });
       }
 
-
       const itemsJson =
         JSON.stringify(
           items
         );
 
-
       const createdAt =
         new Date().toISOString();
-
 
       const {
         data: newOrder,
@@ -3238,7 +3209,6 @@ app.post(
         )
         .single();
 
-
       if (error) {
 
         console.error(
@@ -3252,9 +3222,6 @@ app.post(
             "Sipariş oluşturulamadı."
         });
       }
-
-
-      /* SİPARİŞ MAİLİ */
 
       try {
 
@@ -3271,7 +3238,6 @@ app.post(
 
           parsedItems = [];
         }
-
 
         await sendOrderEmail({
 
@@ -3304,14 +3270,7 @@ app.post(
           "SİPARİŞ E-POSTASI HATASI:",
           emailError
         );
-
-        /*
-          Sipariş yine de başarılıdır.
-          Sadece e-posta gönderilemezse
-          sipariş iptal edilmez.
-        */
       }
-
 
       return res.status(201).json({
 
@@ -3358,7 +3317,6 @@ async function sendOrderEmail(
     return;
   }
 
-
   const itemsText =
     Array.isArray(
       order.items
@@ -3386,7 +3344,6 @@ async function sendOrderEmail(
 
     : "Ürün bilgisi yok";
 
-
   const emailText =
 `
 Yeni VELORA siparişi
@@ -3403,7 +3360,6 @@ ${itemsText}
 
 Toplam: ${order.total || 0} TL
 `;
-
 
   return sendBrevoEmail({
 
