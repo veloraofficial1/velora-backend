@@ -13,9 +13,19 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
+const BREVO_API_KEY =
+  process.env.BREVO_API_KEY || "";
+
+const BREVO_SENDER_EMAIL =
+  process.env.BREVO_SENDER_EMAIL || "";
+
+const BREVO_SENDER_NAME =
+  process.env.BREVO_SENDER_NAME || "VELORA";
+
+const SUPABASE_URL =
+  process.env.SUPABASE_URL;
+
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -195,54 +205,66 @@ function authenticateAdmin(req, res, next) {
 
 
 /* =========================
-   RESEND EMAIL
+   BREVO EMAIL
 ========================= */
 
-async function sendVerificationEmail(
-  email,
-  code
-) {
+async function sendBrevoEmail({
+  to,
+  subject,
+  textContent
+}) {
 
-  if (!RESEND_API_KEY) {
+  if (!BREVO_API_KEY) {
     throw new Error(
-      "RESEND_API_KEY eksik."
+      "BREVO_API_KEY eksik."
+    );
+  }
+
+  if (!BREVO_SENDER_EMAIL) {
+    throw new Error(
+      "BREVO_SENDER_EMAIL eksik."
     );
   }
 
   const response =
     await fetch(
-      "https://api.resend.com/emails",
+      "https://api.brevo.com/v3/smtp/email",
       {
         method: "POST",
 
         headers: {
-          Authorization:
-            `Bearer ${RESEND_API_KEY}`,
+          accept:
+            "application/json",
 
-          "Content-Type":
+          "api-key":
+            BREVO_API_KEY,
+
+          "content-type":
             "application/json"
         },
 
-        body: JSON.stringify({
-          from:
-            "VELORA <noreply@velorataki.com>",
+        body:
+          JSON.stringify({
+            sender: {
+              name:
+                BREVO_SENDER_NAME,
 
-          to: [
-            email
-          ],
+              email:
+                BREVO_SENDER_EMAIL
+            },
 
-          subject:
-            "VELORA E-posta Doğrulama Kodun",
+            to: [
+              {
+                email: to
+              }
+            ],
 
-          text:
-`VELORA hesabını doğrulamak için kodun:
+            subject:
+              subject,
 
-${code}
-
-Bu kod 10 dakika geçerlidir.
-
-Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
-        })
+            textContent:
+              textContent
+          })
       }
     );
 
@@ -252,11 +274,40 @@ Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
       await response.text();
 
     throw new Error(
-      `Resend hata: ${response.status} ${text}`
+      `Brevo hata: ${response.status} ${text}`
     );
   }
 
   return true;
+}
+
+
+/* =========================
+   VERIFICATION EMAIL
+========================= */
+
+async function sendVerificationEmail(
+  email,
+  code
+) {
+
+  return sendBrevoEmail({
+
+    to:
+      email,
+
+    subject:
+      "VELORA E-posta Doğrulama Kodun",
+
+    textContent:
+`VELORA hesabını doğrulamak için kodun:
+
+${code}
+
+Bu kod 10 dakika geçerlidir.
+
+Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
+  });
 }
 
 
@@ -269,38 +320,15 @@ async function sendPasswordResetEmail(
   code
 ) {
 
-  if (!RESEND_API_KEY) {
-    throw new Error(
-      "RESEND_API_KEY eksik."
-    );
-  }
+  return sendBrevoEmail({
 
-  const response =
-    await fetch(
-      "https://api.resend.com/emails",
-      {
-        method: "POST",
+    to:
+      email,
 
-        headers: {
-          Authorization:
-            `Bearer ${RESEND_API_KEY}`,
+    subject:
+      "VELORA Şifre Sıfırlama Kodu",
 
-          "Content-Type":
-            "application/json"
-        },
-
-        body: JSON.stringify({
-          from:
-            "VELORA <noreply@velorataki.com>",
-
-          to: [
-            email
-          ],
-
-          subject:
-            "VELORA Şifre Sıfırlama Kodu",
-
-          text:
+    textContent:
 `VELORA şifreni sıfırlamak için kodun:
 
 ${code}
@@ -308,21 +336,7 @@ ${code}
 Bu kod 10 dakika geçerlidir.
 
 Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
-        })
-      }
-    );
-
-  if (!response.ok) {
-
-    const text =
-      await response.text();
-
-    throw new Error(
-      `Resend hata: ${response.status} ${text}`
-    );
-  }
-
-  return true;
+  });
 }
 
 
@@ -389,7 +403,6 @@ app.post(
           .trim()
           .toLowerCase();
 
-
       if (
         !cleanUsername ||
         !cleanEmail ||
@@ -405,7 +418,6 @@ app.post(
 
       }
 
-
       if (
         password !==
         passwordConfirm
@@ -419,7 +431,6 @@ app.post(
 
       }
 
-
       if (
         password.length < 6
       ) {
@@ -431,7 +442,6 @@ app.post(
         });
 
       }
-
 
       const {
         data: usernameUser,
@@ -445,7 +455,6 @@ app.post(
             cleanUsername
           )
           .maybeSingle();
-
 
       if (usernameError) {
 
@@ -462,7 +471,6 @@ app.post(
 
       }
 
-
       if (usernameUser) {
 
         return res.status(409).json({
@@ -472,7 +480,6 @@ app.post(
         });
 
       }
-
 
       const {
         data: emailUser,
@@ -486,7 +493,6 @@ app.post(
             cleanEmail
           )
           .maybeSingle();
-
 
       if (emailError) {
 
@@ -503,7 +509,6 @@ app.post(
 
       }
 
-
       if (emailUser) {
 
         return res.status(409).json({
@@ -514,13 +519,11 @@ app.post(
 
       }
 
-
       const passwordHash =
         await bcrypt.hash(
           password,
           12
         );
-
 
       const verificationCode =
         crypto
@@ -530,13 +533,11 @@ app.post(
           )
           .toString();
 
-
       const verificationCodeHash =
         await bcrypt.hash(
           verificationCode,
           10
         );
-
 
       const verificationExpiresAt =
         new Date(
@@ -544,10 +545,8 @@ app.post(
           10 * 60 * 1000
         ).toISOString();
 
-
       const createdAt =
         new Date().toISOString();
-
 
       const {
         data: newUser,
@@ -582,7 +581,6 @@ app.post(
           )
           .single();
 
-
       if (insertError) {
 
         console.error(
@@ -597,7 +595,6 @@ app.post(
         });
 
       }
-
 
       try {
 
@@ -620,7 +617,6 @@ app.post(
         });
 
       }
-
 
       return res.status(201).json({
         success: true,
@@ -671,7 +667,6 @@ app.post(
           req.body.code || ""
         ).trim();
 
-
       if (!email || !code) {
 
         return res.status(400).json({
@@ -681,7 +676,6 @@ app.post(
         });
 
       }
-
 
       const {
         data: user,
@@ -695,7 +689,6 @@ app.post(
             email
           )
           .maybeSingle();
-
 
       if (error) {
 
@@ -712,7 +705,6 @@ app.post(
 
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -722,7 +714,6 @@ app.post(
         });
 
       }
-
 
       if (
         Number(user.email_verified) === 1
@@ -736,7 +727,6 @@ app.post(
 
       }
 
-
       if (
         !user.verification_code_hash ||
         !user.verification_expires_at
@@ -749,7 +739,6 @@ app.post(
         });
 
       }
-
 
       if (
         new Date(
@@ -765,13 +754,11 @@ app.post(
 
       }
 
-
       const codeCorrect =
         await bcrypt.compare(
           code,
           user.verification_code_hash
         );
-
 
       if (!codeCorrect) {
 
@@ -782,7 +769,6 @@ app.post(
         });
 
       }
-
 
       const {
         error: updateError
@@ -801,7 +787,6 @@ app.post(
             user.id
           );
 
-
       if (updateError) {
 
         console.error(
@@ -816,7 +801,6 @@ app.post(
         });
 
       }
-
 
       return res.json({
         success: true,
@@ -860,7 +844,6 @@ app.post(
           .trim()
           .toLowerCase();
 
-
       if (!email) {
 
         return res.status(400).json({
@@ -870,7 +853,6 @@ app.post(
         });
 
       }
-
 
       const {
         data: user,
@@ -884,7 +866,6 @@ app.post(
             email
           )
           .maybeSingle();
-
 
       if (error) {
 
@@ -901,7 +882,6 @@ app.post(
 
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -911,7 +891,6 @@ app.post(
         });
 
       }
-
 
       if (
         Number(user.email_verified) === 1
@@ -925,7 +904,6 @@ app.post(
 
       }
 
-
       const verificationCode =
         crypto
           .randomInt(
@@ -934,20 +912,17 @@ app.post(
           )
           .toString();
 
-
       const verificationCodeHash =
         await bcrypt.hash(
           verificationCode,
           10
         );
 
-
       const verificationExpiresAt =
         new Date(
           Date.now() +
           10 * 60 * 1000
         ).toISOString();
-
 
       const {
         error: updateError
@@ -966,7 +941,6 @@ app.post(
             user.id
           );
 
-
       if (updateError) {
 
         console.error(
@@ -981,7 +955,6 @@ app.post(
         });
 
       }
-
 
       try {
 
@@ -1004,7 +977,6 @@ app.post(
         });
 
       }
-
 
       return res.json({
         success: true,
@@ -1047,14 +1019,12 @@ app.post(
         password
       } = req.body;
 
-
       const loginValue =
         String(
           login ||
           username ||
           ""
         ).trim();
-
 
       if (
         !loginValue ||
@@ -1069,7 +1039,6 @@ app.post(
 
       }
 
-
       const {
         data: usernameUser,
         error: usernameError
@@ -1082,7 +1051,6 @@ app.post(
             loginValue
           )
           .maybeSingle();
-
 
       if (usernameError) {
 
@@ -1099,10 +1067,8 @@ app.post(
 
       }
 
-
       let user =
         usernameUser;
-
 
       if (!user) {
 
@@ -1119,7 +1085,6 @@ app.post(
             )
             .maybeSingle();
 
-
         if (emailError) {
 
           console.error(
@@ -1135,12 +1100,10 @@ app.post(
 
         }
 
-
         user =
           emailUser;
 
       }
-
 
       if (!user) {
 
@@ -1151,7 +1114,6 @@ app.post(
         });
 
       }
-
 
       if (
         Number(user.email_verified) !== 1
@@ -1165,13 +1127,11 @@ app.post(
 
       }
 
-
       const passwordCorrect =
         await bcrypt.compare(
           password,
           user.password_hash
         );
-
 
       if (!passwordCorrect) {
 
@@ -1182,7 +1142,6 @@ app.post(
         });
 
       }
-
 
       const safeUser = {
         id:
@@ -1198,12 +1157,10 @@ app.post(
           "user"
       };
 
-
       const token =
         createToken(
           safeUser
         );
-
 
       return res.json({
         success: true,
@@ -1250,7 +1207,6 @@ app.post(
           .trim()
           .toLowerCase();
 
-
       if (!email) {
 
         return res.status(400).json({
@@ -1260,7 +1216,6 @@ app.post(
         });
 
       }
-
 
       const {
         data: user,
@@ -1274,7 +1229,6 @@ app.post(
             email
           )
           .maybeSingle();
-
 
       if (error) {
 
@@ -1291,7 +1245,6 @@ app.post(
 
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -1302,7 +1255,6 @@ app.post(
 
       }
 
-
       const code =
         crypto
           .randomInt(
@@ -1311,20 +1263,17 @@ app.post(
           )
           .toString();
 
-
       const codeHash =
         await bcrypt.hash(
           code,
           10
         );
 
-
       const expiresAt =
         new Date(
           Date.now() +
           10 * 60 * 1000
         ).toISOString();
-
 
       const {
         error: updateError
@@ -1343,7 +1292,6 @@ app.post(
             user.id
           );
 
-
       if (updateError) {
 
         console.error(
@@ -1359,12 +1307,10 @@ app.post(
 
       }
 
-
       await sendPasswordResetEmail(
         email,
         code
       );
-
 
       return res.json({
         success: true,
@@ -1408,14 +1354,12 @@ app.post(
         passwordConfirm
       } = req.body;
 
-
       const cleanEmail =
         String(
           email || ""
         )
           .trim()
           .toLowerCase();
-
 
       if (
         !cleanEmail ||
@@ -1432,7 +1376,6 @@ app.post(
 
       }
 
-
       if (
         password !==
         passwordConfirm
@@ -1446,7 +1389,6 @@ app.post(
 
       }
 
-
       if (
         password.length < 6
       ) {
@@ -1458,7 +1400,6 @@ app.post(
         });
 
       }
-
 
       const {
         data: user,
@@ -1472,7 +1413,6 @@ app.post(
             cleanEmail
           )
           .maybeSingle();
-
 
       if (error) {
 
@@ -1489,7 +1429,6 @@ app.post(
 
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -1499,7 +1438,6 @@ app.post(
         });
 
       }
-
 
       if (
         !user.verification_code_hash ||
@@ -1513,7 +1451,6 @@ app.post(
         });
 
       }
-
 
       if (
         new Date(
@@ -1529,13 +1466,11 @@ app.post(
 
       }
 
-
       const codeCorrect =
         await bcrypt.compare(
           String(code).trim(),
           user.verification_code_hash
         );
-
 
       if (!codeCorrect) {
 
@@ -1547,13 +1482,11 @@ app.post(
 
       }
 
-
       const passwordHash =
         await bcrypt.hash(
           password,
           12
         );
-
 
       const {
         error: updateError
@@ -1575,7 +1508,6 @@ app.post(
             user.id
           );
 
-
       if (updateError) {
 
         console.error(
@@ -1590,7 +1522,6 @@ app.post(
         });
 
       }
-
 
       return res.json({
         success: true,
@@ -1640,13 +1571,11 @@ app.post(
 
       }
 
-
       const {
         currentPassword,
         newPassword,
         newPasswordConfirm
       } = req.body;
-
 
       if (
         !currentPassword ||
@@ -1662,7 +1591,6 @@ app.post(
 
       }
 
-
       if (
         newPassword !==
         newPasswordConfirm
@@ -1676,7 +1604,6 @@ app.post(
 
       }
 
-
       if (
         newPassword.length < 6
       ) {
@@ -1688,7 +1615,6 @@ app.post(
         });
 
       }
-
 
       const {
         data: user,
@@ -1702,7 +1628,6 @@ app.post(
             req.user.id
           )
           .maybeSingle();
-
 
       if (error) {
 
@@ -1719,7 +1644,6 @@ app.post(
 
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -1730,13 +1654,11 @@ app.post(
 
       }
 
-
       const correct =
         await bcrypt.compare(
           currentPassword,
           user.password_hash
         );
-
 
       if (!correct) {
 
@@ -1748,13 +1670,11 @@ app.post(
 
       }
 
-
       const newHash =
         await bcrypt.hash(
           newPassword,
           12
         );
-
 
       const {
         error: updateError
@@ -1770,7 +1690,6 @@ app.post(
             req.user.id
           );
 
-
       if (updateError) {
 
         console.error(
@@ -1785,7 +1704,6 @@ app.post(
         });
 
       }
-
 
       return res.json({
         success: true,
@@ -1834,7 +1752,6 @@ app.get(
 
       }
 
-
       const {
         data: user,
         error
@@ -1849,7 +1766,6 @@ app.get(
             req.user.id
           )
           .maybeSingle();
-
 
       if (error) {
 
@@ -1866,7 +1782,6 @@ app.get(
 
       }
 
-
       if (!user) {
 
         return res.status(404).json({
@@ -1876,7 +1791,6 @@ app.get(
         });
 
       }
-
 
       return res.json({
         success: true,
@@ -1921,7 +1835,6 @@ app.post(
         password
       } = req.body;
 
-
       if (
         !username ||
         !password
@@ -1934,7 +1847,6 @@ app.post(
         });
 
       }
-
 
       if (
         username !==
@@ -1951,7 +1863,6 @@ app.post(
 
       }
 
-
       const admin = {
         username:
           ADMIN_USERNAME,
@@ -1960,12 +1871,10 @@ app.post(
           "admin"
       };
 
-
       const token =
         createToken(
           admin
         );
-
 
       return res.json({
         success: true,
@@ -2020,11 +1929,9 @@ app.get(
             }
           );
 
-
       if (userError) {
         throw userError;
       }
-
 
       const {
         count: orderCount,
@@ -2040,11 +1947,9 @@ app.get(
             }
           );
 
-
       if (orderError) {
         throw orderError;
       }
-
 
       const {
         count: newOrderCount,
@@ -2064,11 +1969,9 @@ app.get(
             "Yeni"
           );
 
-
       if (newOrderError) {
         throw newOrderError;
       }
-
 
       const {
         data: totals,
@@ -2080,14 +1983,11 @@ app.get(
             "total, status"
           );
 
-
       if (totalError) {
         throw totalError;
       }
 
-
       let totalAmount = 0;
-
 
       for (
         const order of totals || []
@@ -2106,7 +2006,6 @@ app.get(
         }
 
       }
-
 
       return res.json({
         success: true,
@@ -2172,11 +2071,9 @@ app.get(
             }
           );
 
-
       if (error) {
         throw error;
       }
-
 
       return res.json({
         success: true,
@@ -2219,7 +2116,6 @@ app.delete(
           req.params.id
         );
 
-
       if (
         !Number.isInteger(id)
       ) {
@@ -2231,7 +2127,6 @@ app.delete(
         });
 
       }
-
 
       const {
         data: user,
@@ -2246,11 +2141,9 @@ app.delete(
           )
           .maybeSingle();
 
-
       if (findError) {
         throw findError;
       }
-
 
       if (!user) {
 
@@ -2261,7 +2154,6 @@ app.delete(
         });
 
       }
-
 
       const {
         error: deleteError
@@ -2274,11 +2166,9 @@ app.delete(
             id
           );
 
-
       if (deleteError) {
         throw deleteError;
       }
-
 
       return res.json({
         success: true,
@@ -2330,11 +2220,9 @@ app.get(
             }
           );
 
-
       if (error) {
         throw error;
       }
-
 
       return res.json({
         success: true,
@@ -2381,7 +2269,6 @@ app.patch(
         status
       } = req.body;
 
-
       const allowedStatuses = [
         "Yeni",
         "Hazırlanıyor",
@@ -2389,7 +2276,6 @@ app.patch(
         "Teslim Edildi",
         "İptal"
       ];
-
 
       if (
         !Number.isInteger(id)
@@ -2402,7 +2288,6 @@ app.patch(
         });
 
       }
-
 
       if (
         !allowedStatuses.includes(
@@ -2418,7 +2303,6 @@ app.patch(
 
       }
 
-
       const {
         data: existingOrder,
         error: findError
@@ -2432,11 +2316,9 @@ app.patch(
           )
           .maybeSingle();
 
-
       if (findError) {
         throw findError;
       }
-
 
       if (!existingOrder) {
 
@@ -2447,7 +2329,6 @@ app.patch(
         });
 
       }
-
 
       const {
         error: updateError
@@ -2463,11 +2344,9 @@ app.patch(
             id
           );
 
-
       if (updateError) {
         throw updateError;
       }
-
 
       return res.json({
         success: true,
@@ -2510,7 +2389,6 @@ app.delete(
           req.params.id
         );
 
-
       if (
         !Number.isInteger(id)
       ) {
@@ -2522,7 +2400,6 @@ app.delete(
         });
 
       }
-
 
       const {
         data: order,
@@ -2537,11 +2414,9 @@ app.delete(
           )
           .maybeSingle();
 
-
       if (findError) {
         throw findError;
       }
-
 
       if (!order) {
 
@@ -2552,7 +2427,6 @@ app.delete(
         });
 
       }
-
 
       const {
         error: deleteError
@@ -2565,11 +2439,9 @@ app.delete(
             id
           );
 
-
       if (deleteError) {
         throw deleteError;
       }
-
 
       return res.json({
         success: true,
@@ -2616,7 +2488,6 @@ app.post(
         total
       } = req.body;
 
-
       if (
         !customerName ||
         !customerPhone ||
@@ -2632,16 +2503,13 @@ app.post(
 
       }
 
-
       const itemsJson =
         JSON.stringify(
           items
         );
 
-
       const createdAt =
         new Date().toISOString();
-
 
       const {
         data: newOrder,
@@ -2680,7 +2548,6 @@ app.post(
           .select("id")
           .single();
 
-
       if (error) {
 
         console.error(
@@ -2696,7 +2563,6 @@ app.post(
 
       }
 
-
       return res.status(201).json({
         success: true,
         message:
@@ -2704,7 +2570,6 @@ app.post(
         orderId:
           newOrder.id
       });
-
 
     } catch (error) {
 
@@ -2733,10 +2598,13 @@ async function sendOrderEmail(
   order
 ) {
 
-  if (!RESEND_API_KEY) {
+  if (!BREVO_API_KEY) {
     return;
   }
 
+  if (!BREVO_SENDER_EMAIL) {
+    return;
+  }
 
   const itemsText =
     Array.isArray(
@@ -2749,7 +2617,6 @@ async function sendOrderEmail(
           )
           .join("\n")
       : "Ürün bilgisi yok";
-
 
   const emailText =
 `
@@ -2777,51 +2644,18 @@ Toplam:
 ${order.total || 0} TL
 `;
 
+  return sendBrevoEmail({
 
-  const response =
-    await fetch(
-      "https://api.resend.com/emails",
-      {
-        method: "POST",
+    to:
+      BREVO_SENDER_EMAIL,
 
-        headers: {
-          Authorization:
-            `Bearer ${RESEND_API_KEY}`,
+    subject:
+      `VELORA Yeni Sipariş #${order.orderId}`,
 
-          "Content-Type":
-            "application/json"
-        },
+    textContent:
+      emailText
 
-        body: JSON.stringify({
-          from:
-            "VELORA <noreply@velorataki.com>",
-
-          to:
-            ["delivered@resend.dev"],
-
-          subject:
-            `VELORA Yeni Sipariş #${order.orderId}`,
-
-          text:
-            emailText
-        })
-      }
-    );
-
-
-  if (!response.ok) {
-
-    const text =
-      await response.text();
-
-    throw new Error(
-      `Resend hata: ${response.status} ${text}`
-    );
-
-  }
-
-
-  return true;
+  });
 }
 
 
