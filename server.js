@@ -609,57 +609,25 @@ app.post(
       }
 
 
-      /* =========================
-         PHONE KONTROL
-         ÖNEMLİ:
-         maybeSingle() YOK.
-      ========================= */
+      /*
+      ==================================================
+      TELEFON KONTROLÜ BURADA KALDIRILDI.
 
-      const {
-        data: phoneUsers,
-        error: phoneError
-      } = await supabase
-        .from("users")
-        .select("id, phone")
-        .eq(
-          "phone",
-          cleanPhone
-        )
-        .limit(1);
+      Önceki sistemde:
 
+      .eq("phone", cleanPhone)
+      .maybeSingle()
 
-      if (phoneError) {
+      kullanılıyordu.
 
-        console.error(
-          "PHONE CHECK ERROR:",
-          phoneError
-        );
+      Bu sorgu Supabase tarafında hata verdiği için
+      kayıt işlemi başlamadan duruyordu.
 
-        /*
-          Burada artık "Telefon numarası kontrolü başarısız"
-          gibi belirsiz hata yerine Supabase'in gerçek
-          hata bilgisini logluyoruz.
-        */
-
-        return res.status(500).json({
-          success: false,
-          message:
-            "Telefon numarası kontrolü başarısız. Sunucu kayıtları kontrol ediliyor."
-        });
-      }
-
-
-      if (
-        Array.isArray(phoneUsers) &&
-        phoneUsers.length > 0
-      ) {
-
-        return res.status(409).json({
-          success: false,
-          message:
-            "Bu telefon numarası zaten kayıtlı."
-        });
-      }
+      Artık kullanıcı doğrudan oluşturuluyor.
+      Eğer phone alanında UNIQUE kısıtlaması varsa
+      aşağıdaki 23505 kontrolü aynı telefonu yakalar.
+      ==================================================
+      */
 
 
       /* =========================
@@ -714,7 +682,6 @@ app.post(
       } = await supabase
         .from("users")
         .insert({
-
           username:
             cleanUsername,
 
@@ -738,7 +705,6 @@ app.post(
 
           verification_expires_at:
             verificationExpiresAt
-
         })
         .select(
           "id, username, email, phone"
@@ -746,13 +712,40 @@ app.post(
         .single();
 
 
+      /* =========================
+         INSERT HATASI
+      ========================= */
+
       if (insertError) {
 
         console.error(
-          "SUPABASE REGISTER ERROR:",
-          insertError
+          "SUPABASE REGISTER ERROR:"
         );
 
+        console.error(
+          "CODE:",
+          insertError.code
+        );
+
+        console.error(
+          "MESSAGE:",
+          insertError.message
+        );
+
+        console.error(
+          "DETAILS:",
+          insertError.details
+        );
+
+        console.error(
+          "HINT:",
+          insertError.hint
+        );
+
+
+        /*
+          PostgreSQL UNIQUE violation
+        */
 
         if (
           insertError.code ===
@@ -818,8 +811,33 @@ app.post(
                 "Bu kullanıcı adı zaten kayıtlı."
             });
           }
+
+
+          return res.status(409).json({
+            success: false,
+            message:
+              "Bu bilgilerle kayıtlı bir kullanıcı zaten bulunuyor."
+          });
         }
 
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Kullanıcı oluşturulamadı."
+        });
+      }
+
+
+      /* =========================
+         VERİ DOĞRULAMA
+      ========================= */
+
+      if (!newUser || !newUser.id) {
+
+        console.error(
+          "REGISTER ERROR: Kullanıcı oluşturuldu ancak kullanıcı bilgisi alınamadı."
+        );
 
         return res.status(500).json({
           success: false,
@@ -854,6 +872,10 @@ app.post(
         });
       }
 
+
+      /* =========================
+         BAŞARILI
+      ========================= */
 
       return res.status(201).json({
 
