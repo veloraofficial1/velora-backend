@@ -184,13 +184,27 @@ app.post("/api/auth/register", async (req, res) => {
     const {
       username,
       email,
-      password
+      password,
+      passwordConfirm
     } = req.body;
 
-    if (!username || !email || !password) {
+    if (
+      !username ||
+      !email ||
+      !password ||
+      !passwordConfirm
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Kullanıcı adı, e-posta ve şifre gerekli."
+        message:
+          "Kullanıcı adı, e-posta, şifre ve şifre tekrarı gerekli."
+      });
+    }
+
+    if (password !== passwordConfirm) {
+      return res.status(400).json({
+        success: false,
+        message: "Şifreler aynı değil."
       });
     }
 
@@ -211,7 +225,8 @@ app.post("/api/auth/register", async (req, res) => {
     if (existingUser) {
       return res.status(409).json({
         success: false,
-        message: "Bu kullanıcı adı veya e-posta zaten kayıtlı."
+        message:
+          "Bu kullanıcı adı veya e-posta zaten kayıtlı."
       });
     }
 
@@ -279,7 +294,8 @@ app.post("/api/auth/login", async (req, res) => {
     if (!loginValue || !password) {
       return res.status(400).json({
         success: false,
-        message: "Kullanıcı adı/e-posta ve şifre gerekli."
+        message:
+          "Kullanıcı adı/e-posta ve şifre gerekli."
       });
     }
 
@@ -296,7 +312,8 @@ app.post("/api/auth/login", async (req, res) => {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: "Kullanıcı adı veya şifre yanlış."
+        message:
+          "Kullanıcı adı veya şifre yanlış."
       });
     }
 
@@ -308,7 +325,8 @@ app.post("/api/auth/login", async (req, res) => {
     if (!passwordCorrect) {
       return res.status(401).json({
         success: false,
-        message: "Kullanıcı adı veya şifre yanlış."
+        message:
+          "Kullanıcı adı veya şifre yanlış."
       });
     }
 
@@ -337,6 +355,126 @@ app.post("/api/auth/login", async (req, res) => {
     });
   }
 });
+
+
+/* =========================
+   ŞİFRE DEĞİŞTİR
+========================= */
+
+app.post(
+  "/api/auth/change-password",
+  authenticateUser,
+  async (req, res) => {
+
+    try {
+      if (req.user.role === "admin") {
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin şifresi bu bölümden değiştirilemez."
+        });
+      }
+
+      const {
+        currentPassword,
+        newPassword,
+        newPasswordConfirm
+      } = req.body;
+
+      if (
+        !currentPassword ||
+        !newPassword ||
+        !newPasswordConfirm
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Mevcut şifre, yeni şifre ve yeni şifre tekrarı gerekli."
+        });
+      }
+
+      if (newPassword !== newPasswordConfirm) {
+        return res.status(400).json({
+          success: false,
+          message: "Yeni şifreler aynı değil."
+        });
+      }
+
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Yeni şifre en az 6 karakter olmalı."
+        });
+      }
+
+      if (currentPassword === newPassword) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Yeni şifre mevcut şifreyle aynı olamaz."
+        });
+      }
+
+      const user = db.prepare(`
+        SELECT *
+        FROM users
+        WHERE id = ?
+      `).get(req.user.id);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "Kullanıcı bulunamadı."
+        });
+      }
+
+      const currentPasswordCorrect =
+        await bcrypt.compare(
+          currentPassword,
+          user.password_hash
+        );
+
+      if (!currentPasswordCorrect) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Mevcut şifre yanlış."
+        });
+      }
+
+      const newPasswordHash =
+        await bcrypt.hash(newPassword, 12);
+
+      db.prepare(`
+        UPDATE users
+        SET password_hash = ?
+        WHERE id = ?
+      `).run(
+        newPasswordHash,
+        req.user.id
+      );
+
+      return res.json({
+        success: true,
+        message:
+          "Şifren başarıyla değiştirildi. Güvenliğin için tekrar giriş yapmalısın."
+      });
+
+    } catch (error) {
+      console.error(
+        "CHANGE PASSWORD ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Şifre değiştirilirken hata oluştu."
+      });
+    }
+  }
+);
 
 
 /* =========================
@@ -402,7 +540,8 @@ app.post(
       if (!username || !password) {
         return res.status(400).json({
           success: false,
-          message: "Admin kullanıcı adı ve şifre gerekli."
+          message:
+            "Admin kullanıcı adı ve şifre gerekli."
         });
       }
 
@@ -412,7 +551,8 @@ app.post(
       ) {
         return res.status(401).json({
           success: false,
-          message: "Admin kullanıcı adı veya şifre yanlış."
+          message:
+            "Admin kullanıcı adı veya şifre yanlış."
         });
       }
 
@@ -431,11 +571,15 @@ app.post(
       });
 
     } catch (error) {
-      console.error("ADMIN LOGIN ERROR:", error);
+      console.error(
+        "ADMIN LOGIN ERROR:",
+        error
+      );
 
       return res.status(500).json({
         success: false,
-        message: "Admin girişinde hata oluştu."
+        message:
+          "Admin girişinde hata oluştu."
       });
     }
   }
@@ -527,7 +671,8 @@ app.delete(
     if (!Number.isInteger(id)) {
       return res.status(400).json({
         success: false,
-        message: "Geçersiz kullanıcı ID."
+        message:
+          "Geçersiz kullanıcı ID."
       });
     }
 
@@ -539,13 +684,15 @@ app.delete(
     if (result.changes === 0) {
       return res.status(404).json({
         success: false,
-        message: "Kullanıcı bulunamadı."
+        message:
+          "Kullanıcı bulunamadı."
       });
     }
 
     res.json({
       success: true,
-      message: "Kullanıcı silindi."
+      message:
+        "Kullanıcı silindi."
     });
   }
 );
@@ -597,7 +744,8 @@ app.patch(
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: "Geçersiz sipariş durumu."
+        message:
+          "Geçersiz sipariş durumu."
       });
     }
 
@@ -610,13 +758,15 @@ app.patch(
     if (result.changes === 0) {
       return res.status(404).json({
         success: false,
-        message: "Sipariş bulunamadı."
+        message:
+          "Sipariş bulunamadı."
       });
     }
 
     res.json({
       success: true,
-      message: "Sipariş durumu güncellendi."
+      message:
+        "Sipariş durumu güncellendi."
     });
   }
 );
@@ -641,13 +791,15 @@ app.delete(
     if (result.changes === 0) {
       return res.status(404).json({
         success: false,
-        message: "Sipariş bulunamadı."
+        message:
+          "Sipariş bulunamadı."
       });
     }
 
     res.json({
       success: true,
-      message: "Sipariş silindi."
+      message:
+        "Sipariş silindi."
     });
   }
 );
@@ -680,12 +832,16 @@ app.post(
       ) {
         return res.status(400).json({
           success: false,
-          message: "Sipariş bilgileri eksik."
+          message:
+            "Sipariş bilgileri eksik."
         });
       }
 
-      const itemsJson = JSON.stringify(items);
-      const createdAt = new Date().toISOString();
+      const itemsJson =
+        JSON.stringify(items);
+
+      const createdAt =
+        new Date().toISOString();
 
       const result = db.prepare(`
         INSERT INTO orders
@@ -715,13 +871,16 @@ app.post(
 
       res.status(201).json({
         success: true,
-        message: "Sipariş başarıyla oluşturuldu.",
-        orderId: result.lastInsertRowid
+        message:
+          "Sipariş başarıyla oluşturuldu.",
+        orderId:
+          result.lastInsertRowid
       });
 
       if (RESEND_API_KEY) {
         sendOrderEmail({
-          orderId: result.lastInsertRowid,
+          orderId:
+            result.lastInsertRowid,
           customerName,
           customerPhone,
           customerAddress,
@@ -737,11 +896,15 @@ app.post(
       }
 
     } catch (error) {
-      console.error("ORDER ERROR:", error);
+      console.error(
+        "ORDER ERROR:",
+        error
+      );
 
       res.status(500).json({
         success: false,
-        message: "Sipariş oluşturulurken hata oluştu."
+        message:
+          "Sipariş oluşturulurken hata oluştu."
       });
     }
   }
@@ -803,17 +966,21 @@ ${order.total || 0} TL
           "application/json"
       },
       body: JSON.stringify({
-        from: "VELORA <onboarding@resend.dev>",
-        to: ["delivered@resend.dev"],
+        from:
+          "VELORA <onboarding@resend.dev>",
+        to:
+          ["delivered@resend.dev"],
         subject:
           `VELORA Yeni Sipariş #${order.orderId}`,
-        text: emailText
+        text:
+          emailText
       })
     }
   );
 
   if (!response.ok) {
-    const text = await response.text();
+    const text =
+      await response.text();
 
     throw new Error(
       `Resend hata: ${response.status} ${text}`
@@ -853,7 +1020,8 @@ app.use(
 
     res.status(500).json({
       success: false,
-      message: "Sunucu hatası."
+      message:
+        "Sunucu hatası."
     });
   }
 );
