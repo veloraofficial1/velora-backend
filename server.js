@@ -109,6 +109,34 @@ function createToken(payload) {
 
 
 /* =========================
+   PHONE NORMALIZE
+========================= */
+
+function normalizePhone(phone) {
+
+  let cleanPhone =
+    String(phone || "")
+      .replace(/\D/g, "");
+
+  /*
+   * Eğer kullanıcı 905551234567
+   * şeklinde gönderirse 05551234567
+   * formatına çevir.
+   */
+
+  if (
+    cleanPhone.startsWith("90") &&
+    cleanPhone.length === 12
+  ) {
+    cleanPhone =
+      "0" + cleanPhone.slice(2);
+  }
+
+  return cleanPhone;
+}
+
+
+/* =========================
    USER AUTH
 ========================= */
 
@@ -118,11 +146,13 @@ function authenticateUser(req, res, next) {
     req.headers.authorization || "";
 
   if (!auth.startsWith("Bearer ")) {
+
     return res.status(401).json({
       success: false,
       message:
         "Yetkilendirme gerekli."
     });
+
   }
 
   const token =
@@ -162,11 +192,13 @@ function authenticateAdmin(req, res, next) {
     req.headers.authorization || "";
 
   if (!auth.startsWith("Bearer ")) {
+
     return res.status(401).json({
       success: false,
       message:
         "Admin girişi gerekli."
     });
+
   }
 
   const token =
@@ -180,12 +212,16 @@ function authenticateAdmin(req, res, next) {
         JWT_SECRET
       );
 
-    if (decoded.role !== "admin") {
+    if (
+      decoded.role !== "admin"
+    ) {
+
       return res.status(403).json({
         success: false,
         message:
           "Admin yetkisi gerekli."
       });
+
     }
 
     req.admin = decoded;
@@ -387,14 +423,17 @@ app.post(
       const {
         username,
         email,
+        phone,
         password,
         passwordConfirm
       } = req.body;
+
 
       const cleanUsername =
         String(
           username || ""
         ).trim();
+
 
       const cleanEmail =
         String(
@@ -403,9 +442,31 @@ app.post(
           .trim()
           .toLowerCase();
 
+
+      /*
+       * Telefonu temizle.
+       * Örneğin:
+       *
+       * 0555 123 45 67
+       * 05551234567
+       * +90 555 123 45 67
+       *
+       * uygun şekilde 05551234567
+       * haline getirilecek.
+       */
+
+      const cleanPhone =
+        normalizePhone(phone);
+
+
+      /* =========================
+         REQUIRED CHECK
+      ========================= */
+
       if (
         !cleanUsername ||
         !cleanEmail ||
+        !cleanPhone ||
         !password ||
         !passwordConfirm
       ) {
@@ -413,10 +474,34 @@ app.post(
         return res.status(400).json({
           success: false,
           message:
-            "Kullanıcı adı, e-posta, şifre ve şifre tekrarı gerekli."
+            "Kullanıcı adı, e-posta, telefon, şifre ve şifre tekrarı gerekli."
         });
 
       }
+
+
+      /* =========================
+         PHONE FORMAT
+      ========================= */
+
+      if (
+        !/^05[0-9]{9}$/.test(
+          cleanPhone
+        )
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Geçerli bir telefon numarası girin. Örnek: 05551234567"
+        });
+
+      }
+
+
+      /* =========================
+         PASSWORD CHECK
+      ========================= */
 
       if (
         password !==
@@ -431,6 +516,7 @@ app.post(
 
       }
 
+
       if (
         password.length < 6
       ) {
@@ -442,6 +528,11 @@ app.post(
         });
 
       }
+
+
+      /* =========================
+         USERNAME CHECK
+      ========================= */
 
       const {
         data: usernameUser,
@@ -455,6 +546,7 @@ app.post(
             cleanUsername
           )
           .maybeSingle();
+
 
       if (usernameError) {
 
@@ -471,6 +563,7 @@ app.post(
 
       }
 
+
       if (usernameUser) {
 
         return res.status(409).json({
@@ -480,6 +573,11 @@ app.post(
         });
 
       }
+
+
+      /* =========================
+         EMAIL CHECK
+      ========================= */
 
       const {
         data: emailUser,
@@ -493,6 +591,7 @@ app.post(
             cleanEmail
           )
           .maybeSingle();
+
 
       if (emailError) {
 
@@ -509,6 +608,7 @@ app.post(
 
       }
 
+
       if (emailUser) {
 
         return res.status(409).json({
@@ -519,11 +619,66 @@ app.post(
 
       }
 
+
+      /* =========================
+         PHONE CHECK
+      ========================= */
+
+      const {
+        data: phoneUser,
+        error: phoneError
+      } =
+        await supabase
+          .from("users")
+          .select("id")
+          .eq(
+            "phone",
+            cleanPhone
+          )
+          .maybeSingle();
+
+
+      if (phoneError) {
+
+        console.error(
+          "PHONE CHECK ERROR:",
+          phoneError
+        );
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Telefon numarası kontrolü başarısız."
+        });
+
+      }
+
+
+      if (phoneUser) {
+
+        return res.status(409).json({
+          success: false,
+          message:
+            "Bu telefon numarası zaten kayıtlı."
+        });
+
+      }
+
+
+      /* =========================
+         PASSWORD HASH
+      ========================= */
+
       const passwordHash =
         await bcrypt.hash(
           password,
           12
         );
+
+
+      /* =========================
+         VERIFICATION CODE
+      ========================= */
 
       const verificationCode =
         crypto
@@ -533,11 +688,13 @@ app.post(
           )
           .toString();
 
+
       const verificationCodeHash =
         await bcrypt.hash(
           verificationCode,
           10
         );
+
 
       const verificationExpiresAt =
         new Date(
@@ -545,8 +702,14 @@ app.post(
           10 * 60 * 1000
         ).toISOString();
 
+
       const createdAt =
         new Date().toISOString();
+
+
+      /* =========================
+         CREATE USER
+      ========================= */
 
       const {
         data: newUser,
@@ -555,11 +718,15 @@ app.post(
         await supabase
           .from("users")
           .insert({
+
             username:
               cleanUsername,
 
             email:
               cleanEmail,
+
+            phone:
+              cleanPhone,
 
             password_hash:
               passwordHash,
@@ -575,11 +742,17 @@ app.post(
 
             verification_expires_at:
               verificationExpiresAt
+
           })
           .select(
-            "id, username, email"
+            "id, username, email, phone"
           )
           .single();
+
+
+      /* =========================
+         INSERT ERROR
+      ========================= */
 
       if (insertError) {
 
@@ -588,6 +761,53 @@ app.post(
           insertError
         );
 
+
+        /*
+         * Supabase unique index tarafından
+         * aynı telefon numarası engellenirse
+         * 409 döndür.
+         */
+
+        if (
+          insertError.code === "23505"
+        ) {
+
+          const errorText =
+            (
+              String(
+                insertError.message || ""
+              ) +
+              " " +
+              String(
+                insertError.details || ""
+              ) +
+              " " +
+              String(
+                insertError.hint || ""
+              )
+            ).toLowerCase();
+
+
+          if (
+            errorText.includes(
+              "users_phone_unique"
+            ) ||
+            errorText.includes(
+              "phone"
+            )
+          ) {
+
+            return res.status(409).json({
+              success: false,
+              message:
+                "Bu telefon numarası zaten kayıtlı."
+            });
+
+          }
+
+        }
+
+
         return res.status(500).json({
           success: false,
           message:
@@ -595,6 +815,11 @@ app.post(
         });
 
       }
+
+
+      /* =========================
+         SEND VERIFICATION EMAIL
+      ========================= */
 
       try {
 
@@ -618,13 +843,23 @@ app.post(
 
       }
 
+
+      /* =========================
+         SUCCESS
+      ========================= */
+
       return res.status(201).json({
+
         success: true,
+
         message:
           "Hesap oluşturuldu. Doğrulama kodu e-posta adresine gönderildi.",
+
         userId:
           newUser.id
+
       });
+
 
     } catch (error) {
 
@@ -776,11 +1011,16 @@ app.post(
         await supabase
           .from("users")
           .update({
-            email_verified: 1,
+
+            email_verified:
+              1,
+
             verification_code_hash:
               null,
+
             verification_expires_at:
               null
+
           })
           .eq(
             "id",
@@ -930,11 +1170,13 @@ app.post(
         await supabase
           .from("users")
           .update({
+
             verification_code_hash:
               verificationCodeHash,
 
             verification_expires_at:
               verificationExpiresAt
+
           })
           .eq(
             "id",
@@ -1144,6 +1386,7 @@ app.post(
       }
 
       const safeUser = {
+
         id:
           user.id,
 
@@ -1155,6 +1398,7 @@ app.post(
 
         role:
           "user"
+
       };
 
       const token =
@@ -1163,12 +1407,17 @@ app.post(
         );
 
       return res.json({
+
         success: true,
+
         message:
           "Giriş başarılı.",
+
         user:
           safeUser,
+
         token
+
       });
 
     } catch (error) {
@@ -1281,11 +1530,13 @@ app.post(
         await supabase
           .from("users")
           .update({
+
             verification_code_hash:
               codeHash,
 
             verification_expires_at:
               expiresAt
+
           })
           .eq(
             "id",
@@ -1494,6 +1745,7 @@ app.post(
         await supabase
           .from("users")
           .update({
+
             password_hash:
               passwordHash,
 
@@ -1502,6 +1754,7 @@ app.post(
 
             verification_expires_at:
               null
+
           })
           .eq(
             "id",
@@ -1682,8 +1935,10 @@ app.post(
         await supabase
           .from("users")
           .update({
+
             password_hash:
               newHash
+
           })
           .eq(
             "id",
@@ -1747,7 +2002,8 @@ app.get(
 
         return res.json({
           success: true,
-          user: req.user
+          user:
+            req.user
         });
 
       }
@@ -1759,7 +2015,7 @@ app.get(
         await supabase
           .from("users")
           .select(
-            "id, username, email, created_at, email_verified"
+            "id, username, email, phone, created_at, email_verified"
           )
           .eq(
             "id",
@@ -1794,11 +2050,13 @@ app.get(
 
       return res.json({
         success: true,
+
         user: {
           ...user,
           role:
             "user"
         }
+
       });
 
     } catch (error) {
@@ -1864,11 +2122,13 @@ app.post(
       }
 
       const admin = {
+
         username:
           ADMIN_USERNAME,
 
         role:
           "admin"
+
       };
 
       const token =
@@ -1877,12 +2137,17 @@ app.post(
         );
 
       return res.json({
+
         success: true,
+
         message:
           "Admin girişi başarılı.",
+
         user:
           admin,
+
         token
+
       });
 
     } catch (error) {
@@ -2008,9 +2273,11 @@ app.get(
       }
 
       return res.json({
+
         success: true,
 
         stats: {
+
           userCount:
             userCount || 0,
 
@@ -2022,7 +2289,9 @@ app.get(
 
           totalAmount:
             totalAmount
+
         }
+
       });
 
     } catch (error) {
@@ -2062,7 +2331,7 @@ app.get(
         await supabase
           .from("users")
           .select(
-            "id, username, email, created_at, email_verified"
+            "id, username, email, phone, created_at, email_verified"
           )
           .order(
             "id",
@@ -2076,9 +2345,12 @@ app.get(
       }
 
       return res.json({
+
         success: true,
+
         users:
           users || []
+
       });
 
     } catch (error) {
@@ -2225,9 +2497,12 @@ app.get(
       }
 
       return res.json({
+
         success: true,
+
         orders:
           orders || []
+
       });
 
     } catch (error) {
@@ -2518,6 +2793,7 @@ app.post(
         await supabase
           .from("orders")
           .insert({
+
             user_id:
               req.user.id,
 
@@ -2544,6 +2820,7 @@ app.post(
 
             created_at:
               createdAt
+
           })
           .select("id")
           .single();
@@ -2564,11 +2841,15 @@ app.post(
       }
 
       return res.status(201).json({
+
         success: true,
+
         message:
           "Sipariş başarıyla oluşturuldu.",
+
         orderId:
           newOrder.id
+
       });
 
     } catch (error) {
