@@ -115,12 +115,6 @@ function normalizePhone(phone) {
   let cleanPhone = String(phone || "")
     .replace(/\D/g, "");
 
-  /*
-    905551234567
-    ->
-    05551234567
-  */
-
   if (
     cleanPhone.startsWith("90") &&
     cleanPhone.length === 12
@@ -128,12 +122,6 @@ function normalizePhone(phone) {
     cleanPhone =
       "0" + cleanPhone.slice(2);
   }
-
-  /*
-    5551234567
-    ->
-    05551234567
-  */
 
   if (
     cleanPhone.length === 10 &&
@@ -435,15 +423,11 @@ app.post(
 
 
       const cleanUsername =
-        String(
-          username || ""
-        ).trim();
+        String(username || "").trim();
 
 
       const cleanEmail =
-        String(
-          email || ""
-        )
+        String(email || "")
           .trim()
           .toLowerCase();
 
@@ -609,25 +593,49 @@ app.post(
       }
 
 
-      /*
-      ==================================================
-      TELEFON KONTROLÜ BURADA KALDIRILDI.
+      /* =========================
+         TELEFON KONTROL
+      ========================= */
 
-      Önceki sistemde:
+      const {
+        data: phoneUsers,
+        error: phoneError
+      } = await supabase
+        .from("users")
+        .select("id, phone")
+        .eq(
+          "phone",
+          cleanPhone
+        )
+        .limit(1);
 
-      .eq("phone", cleanPhone)
-      .maybeSingle()
 
-      kullanılıyordu.
+      if (phoneError) {
 
-      Bu sorgu Supabase tarafında hata verdiği için
-      kayıt işlemi başlamadan duruyordu.
+        console.error(
+          "PHONE CHECK ERROR:",
+          phoneError
+        );
 
-      Artık kullanıcı doğrudan oluşturuluyor.
-      Eğer phone alanında UNIQUE kısıtlaması varsa
-      aşağıdaki 23505 kontrolü aynı telefonu yakalar.
-      ==================================================
-      */
+        return res.status(500).json({
+          success: false,
+          message:
+            "Telefon numarası kontrolü başarısız."
+        });
+      }
+
+
+      if (
+        Array.isArray(phoneUsers) &&
+        phoneUsers.length > 0
+      ) {
+
+        return res.status(409).json({
+          success: false,
+          message:
+            "Bu telefon numarası zaten kayıtlı."
+        });
+      }
 
 
       /* =========================
@@ -682,6 +690,7 @@ app.post(
       } = await supabase
         .from("users")
         .insert({
+
           username:
             cleanUsername,
 
@@ -698,13 +707,14 @@ app.post(
             createdAt,
 
           email_verified:
-            0,
+            false,
 
           verification_code_hash:
             verificationCodeHash,
 
           verification_expires_at:
             verificationExpiresAt
+
         })
         .select(
           "id, username, email, phone"
@@ -719,7 +729,11 @@ app.post(
       if (insertError) {
 
         console.error(
-          "SUPABASE REGISTER ERROR:"
+          "=============================="
+        );
+
+        console.error(
+          "SUPABASE REGISTER ERROR"
         );
 
         console.error(
@@ -742,34 +756,35 @@ app.post(
           insertError.hint
         );
 
+        console.error(
+          "=============================="
+        );
 
-        /*
-          PostgreSQL UNIQUE violation
-        */
+
+        const errorText =
+          (
+            String(
+              insertError.message || ""
+            ) +
+            " " +
+            String(
+              insertError.details || ""
+            ) +
+            " " +
+            String(
+              insertError.hint || ""
+            )
+          ).toLowerCase();
+
+
+        /* =========================
+           UNIQUE
+        ========================= */
 
         if (
           insertError.code ===
           "23505"
         ) {
-
-          const errorText =
-            (
-              String(
-                insertError.message ||
-                ""
-              ) +
-              " " +
-              String(
-                insertError.details ||
-                ""
-              ) +
-              " " +
-              String(
-                insertError.hint ||
-                ""
-              )
-            ).toLowerCase();
-
 
           if (
             errorText.includes(
@@ -821,19 +836,96 @@ app.post(
         }
 
 
+        /* =========================
+           ŞEMA HATASI
+        ========================= */
+
+        if (
+          errorText.includes(
+            "could not find"
+          ) ||
+          errorText.includes(
+            "schema cache"
+          ) ||
+          errorText.includes(
+            "column"
+          )
+        ) {
+
+          return res.status(500).json({
+            success: false,
+            message:
+              "Veritabanı users tablosunda eksik veya hatalı bir sütun var."
+          });
+        }
+
+
+        /* =========================
+           NOT NULL
+        ========================= */
+
+        if (
+          errorText.includes(
+            "not-null"
+          ) ||
+          errorText.includes(
+            "null value"
+          )
+        ) {
+
+          return res.status(500).json({
+            success: false,
+            message:
+              "Veritabanında zorunlu bir alan eksik."
+          });
+        }
+
+
+        /* =========================
+           TELEFON TİPİ
+        ========================= */
+
+        if (
+          errorText.includes(
+            "invalid input syntax"
+          ) &&
+          errorText.includes(
+            "phone"
+          )
+        ) {
+
+          return res.status(500).json({
+            success: false,
+            message:
+              "Telefon sütunu text türünde olmalı."
+          });
+        }
+
+
+        /* =========================
+           GERÇEK HATA
+        ========================= */
+
         return res.status(500).json({
           success: false,
           message:
-            "Kullanıcı oluşturulamadı."
+            "Kullanıcı oluşturulamadı: " +
+            (
+              insertError.message ||
+              "Bilinmeyen veritabanı hatası"
+            )
         });
       }
 
 
       /* =========================
-         VERİ DOĞRULAMA
+         USER KONTROL
       ========================= */
 
-      if (!newUser || !newUser.id) {
+      if (
+        !newUser ||
+        !newUser.id
+      ) {
 
         console.error(
           "REGISTER ERROR: Kullanıcı oluşturuldu ancak kullanıcı bilgisi alınamadı."
@@ -842,7 +934,7 @@ app.post(
         return res.status(500).json({
           success: false,
           message:
-            "Kullanıcı oluşturulamadı."
+            "Kullanıcı oluşturuldu ancak kullanıcı bilgileri alınamadı."
         });
       }
 
@@ -977,7 +1069,8 @@ app.post(
       if (
         Number(
           user.email_verified
-        ) === 1
+        ) === 1 ||
+        user.email_verified === true
       ) {
 
         return res.json({
@@ -1035,7 +1128,7 @@ app.post(
         .update({
 
           email_verified:
-            1,
+            true,
 
           verification_code_hash:
             null,
@@ -1151,7 +1244,8 @@ app.post(
       if (
         Number(
           user.email_verified
-        ) === 1
+        ) === 1 ||
+        user.email_verified === true
       ) {
 
         return res.status(400).json({
@@ -1369,7 +1463,8 @@ app.post(
       if (
         Number(
           user.email_verified
-        ) !== 1
+        ) !== 1 &&
+        user.email_verified !== true
       ) {
 
         return res.status(403).json({
