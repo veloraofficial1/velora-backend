@@ -445,14 +445,6 @@ app.post(
 
       /*
        * Telefonu temizle.
-       * Örneğin:
-       *
-       * 0555 123 45 67
-       * 05551234567
-       * +90 555 123 45 67
-       *
-       * uygun şekilde 05551234567
-       * haline getirilecek.
        */
 
       const cleanPhone =
@@ -761,12 +753,6 @@ app.post(
           insertError
         );
 
-
-        /*
-         * Supabase unique index tarafından
-         * aynı telefon numarası engellenirse
-         * 409 döndür.
-         */
 
         if (
           insertError.code === "23505"
@@ -2070,6 +2056,319 @@ app.get(
         success: false,
         message:
           "Kullanıcı bilgileri alınamadı."
+      });
+
+    }
+
+  }
+);
+
+
+/* =========================
+   FAVORITES
+========================= */
+
+
+/* =========================
+   GET MY FAVORITES
+========================= */
+
+app.get(
+  "/api/favorites",
+  authenticateUser,
+  async (req, res) => {
+
+    try {
+
+      const {
+        data: favorites,
+        error
+      } =
+        await supabase
+          .from("favorites")
+          .select(
+            "id, product_id, created_at"
+          )
+          .eq(
+            "user_id",
+            req.user.id
+          )
+          .order(
+            "created_at",
+            {
+              ascending: false
+            }
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      return res.json({
+
+        success: true,
+
+        favorites:
+          favorites || []
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        "GET FAVORITES ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+
+        success: false,
+
+        message:
+          "Favoriler alınamadı."
+
+      });
+
+    }
+
+  }
+);
+
+
+/* =========================
+   ADD FAVORITE
+========================= */
+
+app.post(
+  "/api/favorites",
+  authenticateUser,
+  async (req, res) => {
+
+    try {
+
+      const productId =
+        Number(
+          req.body.productId
+        );
+
+      if (
+        !Number.isInteger(productId) ||
+        productId <= 0
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          message:
+            "Geçersiz ürün."
+
+        });
+
+      }
+
+      const {
+        data: favorite,
+        error
+      } =
+        await supabase
+          .from("favorites")
+          .upsert(
+
+            {
+              user_id:
+                req.user.id,
+
+              product_id:
+                productId
+            },
+
+            {
+              onConflict:
+                "user_id,product_id"
+            }
+
+          )
+          .select(
+            "id, product_id, created_at"
+          )
+          .single();
+
+      if (error) {
+        throw error;
+      }
+
+      return res.json({
+
+        success: true,
+
+        message:
+          "Ürün favorilere eklendi.",
+
+        favorite
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        "ADD FAVORITE ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+
+        success: false,
+
+        message:
+          "Favori eklenemedi."
+
+      });
+
+    }
+
+  }
+);
+
+
+/* =========================
+   DELETE FAVORITE
+========================= */
+
+app.delete(
+  "/api/favorites/:productId",
+  authenticateUser,
+  async (req, res) => {
+
+    try {
+
+      const productId =
+        Number(
+          req.params.productId
+        );
+
+      if (
+        !Number.isInteger(productId) ||
+        productId <= 0
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          message:
+            "Geçersiz ürün."
+
+        });
+
+      }
+
+      const {
+        error
+      } =
+        await supabase
+          .from("favorites")
+          .delete()
+          .eq(
+            "user_id",
+            req.user.id
+          )
+          .eq(
+            "product_id",
+            productId
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      return res.json({
+
+        success: true,
+
+        message:
+          "Ürün favorilerden çıkarıldı."
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        "DELETE FAVORITE ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+
+        success: false,
+
+        message:
+          "Favori silinemedi."
+
+      });
+
+    }
+
+  }
+);
+
+
+/* =========================
+   MY ORDERS
+========================= */
+
+app.get(
+  "/api/orders/my",
+  authenticateUser,
+  async (req, res) => {
+
+    try {
+
+      const {
+        data: orders,
+        error
+      } =
+        await supabase
+          .from("orders")
+          .select("*")
+          .eq(
+            "user_id",
+            req.user.id
+          )
+          .order(
+            "created_at",
+            {
+              ascending: false
+            }
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      return res.json({
+
+        success: true,
+
+        orders:
+          orders || []
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        "GET MY ORDERS ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+
+        success: false,
+
+        message:
+          "Siparişler alınamadı."
+
       });
 
     }
