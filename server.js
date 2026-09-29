@@ -19,11 +19,13 @@ const BREVO_SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || "";
 const BREVO_SENDER_NAME = process.env.BREVO_SENDER_NAME || "VELORA";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-/* =========================================================
-   GEREKLİ ENV KONTROLLERİ
-========================================================= */
+
+/* =========================
+   ENV KONTROL
+========================= */
 
 if (!JWT_SECRET) {
   console.error("JWT_SECRET eksik!");
@@ -50,18 +52,20 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
-/* =========================================================
+
+/* =========================
    SUPABASE
-========================================================= */
+========================= */
 
 const supabase = createClient(
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY
 );
 
-/* =========================================================
-   CORS
-========================================================= */
+
+/* =========================
+   MIDDLEWARE
+========================= */
 
 app.use(
   cors({
@@ -70,545 +74,748 @@ app.use(
       "http://localhost:3000",
       "http://localhost:5500"
     ],
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"]
+    methods: [
+      "GET",
+      "POST",
+      "PATCH",
+      "DELETE",
+      "OPTIONS"
+    ],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization"
+    ]
   })
 );
 
 app.use(express.json());
 
-/* =========================================================
+
+/* =========================
    TOKEN
-========================================================= */
+========================= */
 
 function createToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: "7d"
-  });
+  return jwt.sign(
+    payload,
+    JWT_SECRET,
+    {
+      expiresIn: "7d"
+    }
+  );
 }
 
-/* =========================================================
-   TELEFON NORMALLEŞTİRME
-========================================================= */
+
+/* =========================
+   TELEFON NORMALIZE
+========================= */
 
 function normalizePhone(phone) {
-  let cleanPhone = String(phone || "").replace(/\D/g, "");
+  let cleanPhone = String(phone || "")
+    .replace(/\D/g, "");
 
-  if (cleanPhone.startsWith("90") && cleanPhone.length === 12) {
-    cleanPhone = "0" + cleanPhone.slice(2);
+  if (
+    cleanPhone.startsWith("90") &&
+    cleanPhone.length === 12
+  ) {
+    cleanPhone =
+      "0" + cleanPhone.slice(2);
   }
 
   return cleanPhone;
 }
 
-/* =========================================================
-   KULLANICI DOĞRULAMA
-========================================================= */
 
-function authenticateUser(req, res, next) {
-  const auth = req.headers.authorization || "";
+/* =========================
+   USER AUTH
+========================= */
+
+function authenticateUser(
+  req,
+  res,
+  next
+) {
+  const auth =
+    req.headers.authorization || "";
 
   if (!auth.startsWith("Bearer ")) {
     return res.status(401).json({
       success: false,
-      message: "Yetkilendirme gerekli."
+      message:
+        "Yetkilendirme gerekli."
     });
   }
 
-  const token = auth.substring(7);
+  const token =
+    auth.substring(7);
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded =
+      jwt.verify(
+        token,
+        JWT_SECRET
+      );
 
     req.user = decoded;
 
     next();
+
   } catch (error) {
-    console.error("TOKEN HATASI:", error);
 
     return res.status(401).json({
       success: false,
-      message: "Geçersiz veya süresi dolmuş token."
+      message:
+        "Geçersiz veya süresi dolmuş token."
     });
   }
 }
 
-/* =========================================================
-   ADMIN DOĞRULAMA
-========================================================= */
 
-function authenticateAdmin(req, res, next) {
-  const auth = req.headers.authorization || "";
+/* =========================
+   ADMIN AUTH
+========================= */
+
+function authenticateAdmin(
+  req,
+  res,
+  next
+) {
+  const auth =
+    req.headers.authorization || "";
 
   if (!auth.startsWith("Bearer ")) {
     return res.status(401).json({
       success: false,
-      message: "Admin girişi gerekli."
+      message:
+        "Admin girişi gerekli."
     });
   }
 
-  const token = auth.substring(7);
+  const token =
+    auth.substring(7);
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
 
-    if (decoded.role !== "admin") {
+    const decoded =
+      jwt.verify(
+        token,
+        JWT_SECRET
+      );
+
+    if (
+      decoded.role !== "admin"
+    ) {
       return res.status(403).json({
         success: false,
-        message: "Admin yetkisi gerekli."
+        message:
+          "Admin yetkisi gerekli."
       });
     }
 
     req.admin = decoded;
 
     next();
+
   } catch (error) {
-    console.error("ADMIN TOKEN HATASI:", error);
 
     return res.status(401).json({
       success: false,
-      message: "Geçersiz admin token'ı."
+      message:
+        "Geçersiz admin token."
     });
   }
 }
 
-/* =========================================================
-   BREVO E-POSTA
-========================================================= */
+
+/* =========================
+   BREVO EMAIL
+========================= */
 
 async function sendBrevoEmail({
   to,
   subject,
   textContent
 }) {
+
   if (!BREVO_API_KEY) {
-    throw new Error("BREVO_API_KEY eksik.");
+    throw new Error(
+      "BREVO_API_KEY eksik."
+    );
   }
 
   if (!BREVO_SENDER_EMAIL) {
-    throw new Error("BREVO_SENDER_EMAIL eksik.");
+    throw new Error(
+      "BREVO_SENDER_EMAIL eksik."
+    );
   }
 
-  const response = await fetch(
-    "https://api.brevo.com/v3/smtp/email",
-    {
-      method: "POST",
+  const response =
+    await fetch(
+      "https://api.brevo.com/v3/smtp/email",
+      {
+        method: "POST",
 
-      headers: {
-        accept: "application/json",
-        "api-key": BREVO_API_KEY,
-        "content-type": "application/json"
-      },
+        headers: {
+          accept:
+            "application/json",
 
-      body: JSON.stringify({
-        sender: {
-          name: BREVO_SENDER_NAME,
-          email: BREVO_SENDER_EMAIL
+          "api-key":
+            BREVO_API_KEY,
+
+          "content-type":
+            "application/json"
         },
 
-        to: [
-          {
-            email: to
-          }
-        ],
+        body: JSON.stringify({
+          sender: {
+            name:
+              BREVO_SENDER_NAME,
 
-        subject,
-        textContent
-      })
-    }
-  );
+            email:
+              BREVO_SENDER_EMAIL
+          },
+
+          to: [
+            {
+              email: to
+            }
+          ],
+
+          subject:
+            subject,
+
+          textContent:
+            textContent
+        })
+      }
+    );
 
   if (!response.ok) {
-    const text = await response.text();
+
+    const text =
+      await response.text();
 
     throw new Error(
-      `Brevo hatası: ${response.status} ${text}`
+      `Brevo hata: ${response.status} ${text}`
     );
   }
 
   return true;
 }
 
-/* =========================================================
-   DOĞRULAMA E-POSTASI
-========================================================= */
 
-async function sendVerificationEmail(email, code) {
+/* =========================
+   VERIFICATION EMAIL
+========================= */
+
+async function sendVerificationEmail(
+  email,
+  code
+) {
+
   return sendBrevoEmail({
+
     to: email,
 
-    subject: "VELORA E-posta Doğrulama Kodun",
+    subject:
+      "VELORA E-posta Doğrulama Kodun",
 
     textContent:
-      `VELORA hesabını doğrulamak için kodun: ${code}\n\n` +
-      `Bu kod 10 dakika geçerlidir.\n\n` +
-      `Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
+`VELORA hesabını doğrulamak için kodun: ${code}
+
+Bu kod 10 dakika geçerlidir.
+
+Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
   });
 }
 
-/* =========================================================
-   ŞİFRE SIFIRLAMA E-POSTASI
-========================================================= */
 
-async function sendPasswordResetEmail(email, code) {
+/* =========================
+   PASSWORD RESET EMAIL
+========================= */
+
+async function sendPasswordResetEmail(
+  email,
+  code
+) {
+
   return sendBrevoEmail({
+
     to: email,
 
-    subject: "VELORA Şifre Sıfırlama Kodun",
+    subject:
+      "VELORA Şifre Sıfırlama Kodu",
 
     textContent:
-      `VELORA şifreni sıfırlamak için kodun: ${code}\n\n` +
-      `Bu kod 10 dakika geçerlidir.\n\n` +
-      `Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
+`VELORA şifreni sıfırlamak için kodun: ${code}
+
+Bu kod 10 dakika geçerlidir.
+
+Eğer bu işlemi sen yapmadıysan bu e-postayı dikkate alma.`
   });
 }
 
-/* =========================================================
+
+/* =========================
    ANA SAYFA
-========================================================= */
+========================= */
 
-app.get("/", (req, res) => {
-  res.send("VELORA arka uç çalışıyor! 🚀");
-});
+app.get(
+  "/",
+  (req, res) => {
 
-/* =========================================================
-   SAĞLIK
-========================================================= */
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    success: true,
-    message: "VELORA API aktif"
-  });
-});
-
-/* =========================================================
-   KAYIT
-========================================================= */
-
-app.post("/api/auth/register", async (req, res) => {
-  try {
-    const {
-      username,
-      email,
-      phone,
-      password,
-      passwordConfirm
-    } = req.body;
-
-    const cleanUsername = String(username || "").trim();
-
-    const cleanEmail = String(email || "")
-      .trim()
-      .toLowerCase();
-
-    const cleanPhone = normalizePhone(phone);
-
-    if (
-      !cleanUsername ||
-      !cleanEmail ||
-      !cleanPhone ||
-      !password ||
-      !passwordConfirm
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Kullanıcı adı, e-posta, telefon, şifre ve şifre tekrarı gereklidir."
-      });
-    }
-
-    if (!/^05[0-9]{9}$/.test(cleanPhone)) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Geçerli bir telefon numarası girin. Örnek: 05551234567"
-      });
-    }
-
-    if (password !== passwordConfirm) {
-      return res.status(400).json({
-        success: false,
-        message: "Şifreler aynı değil."
-      });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: "Şifre en az 6 karakter olmalı."
-      });
-    }
-
-    /* =========================
-       KULLANICI ADI KONTROLÜ
-    ========================= */
-
-    const {
-      data: usernameUser,
-      error: usernameError
-    } = await supabase
-      .from("users")
-      .select("id")
-      .eq("username", cleanUsername)
-      .maybeSingle();
-
-    if (usernameError) {
-      console.error(
-        "KULLANICI ADI KONTROL HATASI:",
-        usernameError
-      );
-
-      return res.status(500).json({
-        success: false,
-        message: "Kullanıcı kontrolü sırasında hata oluştu."
-      });
-    }
-
-    if (usernameUser) {
-      return res.status(409).json({
-        success: false,
-        message: "Bu kullanıcı adı zaten kayıtlı."
-      });
-    }
-
-    /* =========================
-       E-POSTA KONTROLÜ
-    ========================= */
-
-    const {
-      data: emailUser,
-      error: emailError
-    } = await supabase
-      .from("users")
-      .select("id")
-      .eq("email", cleanEmail)
-      .maybeSingle();
-
-    if (emailError) {
-      console.error(
-        "E-POSTA KONTROL HATASI:",
-        emailError
-      );
-
-      return res.status(500).json({
-        success: false,
-        message: "E-posta kontrolü sırasında hata oluştu."
-      });
-    }
-
-    if (emailUser) {
-      return res.status(409).json({
-        success: false,
-        message: "Bu e-posta zaten kayıtlı."
-      });
-    }
-
-    /* =========================
-       TELEFON KONTROLÜ
-    ========================= */
-
-    const {
-      data: phoneUser,
-      error: phoneError
-    } = await supabase
-      .from("users")
-      .select("id")
-      .eq("phone", cleanPhone)
-      .maybeSingle();
-
-    if (phoneError) {
-      console.error(
-        "TELEFON KONTROL HATASI:",
-        phoneError
-      );
-
-      return res.status(500).json({
-        success: false,
-        message:
-          "Telefon numarası kontrolü başarısız."
-      });
-    }
-
-    if (phoneUser) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "Bu telefon numarası zaten kayıtlı."
-      });
-    }
-
-    /* =========================
-       ŞİFRE HASH
-    ========================= */
-
-    const passwordHash = await bcrypt.hash(
-      password,
-      12
+    res.send(
+      "VELORA backend çalışıyor! 🚀"
     );
+  }
+);
 
-    /* =========================
-       DOĞRULAMA KODU
-    ========================= */
 
-    const verificationCode = crypto
-      .randomInt(100000, 1000000)
-      .toString();
+/* =========================
+   HEALTH
+========================= */
 
-    const verificationCodeHash =
-      await bcrypt.hash(
-        verificationCode,
-        10
-      );
+app.get(
+  "/api/health",
+  (req, res) => {
 
-    const verificationExpiresAt =
-      new Date(
-        Date.now() + 10 * 60 * 1000
-      ).toISOString();
-
-    const createdAt =
-      new Date().toISOString();
-
-    /* =========================
-       KULLANICI OLUŞTUR
-    ========================= */
-
-    const {
-      data: newUser,
-      error: insertError
-    } = await supabase
-      .from("users")
-      .insert({
-        username: cleanUsername,
-        email: cleanEmail,
-        phone: cleanPhone,
-        password_hash: passwordHash,
-        created_at: createdAt,
-        email_verified: 0,
-        verification_code_hash:
-          verificationCodeHash,
-        verification_expires_at:
-          verificationExpiresAt
-      })
-      .select(
-        "id, username, email, phone"
-      )
-      .single();
-
-    if (insertError) {
-      console.error(
-        "SUPABASE KAYIT HATASI:",
-        insertError
-      );
-
-      if (insertError.code === "23505") {
-        const errorText =
-          (
-            String(insertError.message || "") +
-            " " +
-            String(insertError.details || "") +
-            " " +
-            String(insertError.hint || "")
-          ).toLowerCase();
-
-        if (
-          errorText.includes(
-            "users_phone_unique"
-          ) ||
-          errorText.includes("phone")
-        ) {
-          return res.status(409).json({
-            success: false,
-            message:
-              "Bu telefon numarası zaten kayıtlı."
-          });
-        }
-
-        if (errorText.includes("username")) {
-          return res.status(409).json({
-            success: false,
-            message:
-              "Bu kullanıcı adı zaten kayıtlı."
-          });
-        }
-
-        if (errorText.includes("email")) {
-          return res.status(409).json({
-            success: false,
-            message:
-              "Bu e-posta zaten kayıtlı."
-          });
-        }
-      }
-
-      return res.status(500).json({
-        success: false,
-        message: "Kullanıcı oluşturulamadı."
-      });
-    }
-
-    /* =========================
-       DOĞRULAMA E-POSTASI
-    ========================= */
-
-    try {
-      await sendVerificationEmail(
-        cleanEmail,
-        verificationCode
-      );
-    } catch (emailError) {
-      console.error(
-        "DOĞRULAMA E-POSTASI HATASI:",
-        emailError
-      );
-
-      return res.status(500).json({
-        success: false,
-        message:
-          "Hesap oluşturuldu ancak doğrulama e-postası gönderilemedi. Lütfen yeni kod isteyin."
-      });
-    }
-
-    return res.status(201).json({
+    res.json({
       success: true,
       message:
-        "Hesap oluşturuldu. Doğrulama kodu e-posta ile gönderildi.",
-      userId: newUser.id
-    });
-
-  } catch (error) {
-    console.error(
-      "KAYIT HATASI:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        "Kayıt sırasında hata oluştu."
+        "VELORA API aktif"
     });
   }
-});
+);
 
-/* =========================================================
-   E-POSTA DOĞRULAMA
-========================================================= */
+
+/* =========================
+   REGISTER
+========================= */
+
+app.post(
+  "/api/auth/register",
+  async (req, res) => {
+
+    try {
+
+      const {
+        username,
+        email,
+        phone,
+        password,
+        passwordConfirm
+      } = req.body;
+
+      const cleanUsername =
+        String(
+          username || ""
+        ).trim();
+
+      const cleanEmail =
+        String(
+          email || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const cleanPhone =
+        normalizePhone(phone);
+
+      if (
+        !cleanUsername ||
+        !cleanEmail ||
+        !cleanPhone ||
+        !password ||
+        !passwordConfirm
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Kullanıcı adı, e-posta, telefon, şifre ve şifre tekrarı gerekli."
+        });
+      }
+
+      if (
+        !/^05[0-9]{9}$/.test(
+          cleanPhone
+        )
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Geçerli bir telefon numarası girin. Örnek: 05551234567"
+        });
+      }
+
+      if (
+        password !==
+        passwordConfirm
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Şifreler aynı değil."
+        });
+      }
+
+      if (
+        password.length < 6
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Şifre en az 6 karakter olmalı."
+        });
+      }
+
+
+      /* USERNAME */
+
+      const {
+        data: usernameUser,
+        error: usernameError
+      } = await supabase
+        .from("users")
+        .select("id")
+        .eq(
+          "username",
+          cleanUsername
+        )
+        .maybeSingle();
+
+      if (usernameError) {
+
+        console.error(
+          "USERNAME CHECK ERROR:",
+          usernameError
+        );
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Kullanıcı kontrolü başarısız."
+        });
+      }
+
+      if (usernameUser) {
+
+        return res.status(409).json({
+          success: false,
+          message:
+            "Bu kullanıcı adı zaten kayıtlı."
+        });
+      }
+
+
+      /* EMAIL */
+
+      const {
+        data: emailUser,
+        error: emailError
+      } = await supabase
+        .from("users")
+        .select("id")
+        .eq(
+          "email",
+          cleanEmail
+        )
+        .maybeSingle();
+
+      if (emailError) {
+
+        console.error(
+          "EMAIL CHECK ERROR:",
+          emailError
+        );
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "E-posta kontrolü başarısız."
+        });
+      }
+
+      if (emailUser) {
+
+        return res.status(409).json({
+          success: false,
+          message:
+            "Bu e-posta zaten kayıtlı."
+        });
+      }
+
+
+      /* PHONE */
+
+      const {
+        data: phoneUser,
+        error: phoneError
+      } = await supabase
+        .from("users")
+        .select("id")
+        .eq(
+          "phone",
+          cleanPhone
+        )
+        .maybeSingle();
+
+      if (phoneError) {
+
+        console.error(
+          "PHONE CHECK ERROR:",
+          phoneError
+        );
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Telefon numarası kontrolü başarısız."
+        });
+      }
+
+      if (phoneUser) {
+
+        return res.status(409).json({
+          success: false,
+          message:
+            "Bu telefon numarası zaten kayıtlı."
+        });
+      }
+
+
+      /* ŞİFRE */
+
+      const passwordHash =
+        await bcrypt.hash(
+          password,
+          12
+        );
+
+
+      /* DOĞRULAMA KODU */
+
+      const verificationCode =
+        crypto
+          .randomInt(
+            100000,
+            1000000
+          )
+          .toString();
+
+      const verificationCodeHash =
+        await bcrypt.hash(
+          verificationCode,
+          10
+        );
+
+      const verificationExpiresAt =
+        new Date(
+          Date.now() +
+          10 * 60 * 1000
+        ).toISOString();
+
+      const createdAt =
+        new Date().toISOString();
+
+
+      /* USER OLUŞTUR */
+
+      const {
+        data: newUser,
+        error: insertError
+      } = await supabase
+        .from("users")
+        .insert({
+
+          username:
+            cleanUsername,
+
+          email:
+            cleanEmail,
+
+          phone:
+            cleanPhone,
+
+          password_hash:
+            passwordHash,
+
+          created_at:
+            createdAt,
+
+          email_verified:
+            0,
+
+          verification_code_hash:
+            verificationCodeHash,
+
+          verification_expires_at:
+            verificationExpiresAt
+
+        })
+        .select(
+          "id, username, email, phone"
+        )
+        .single();
+
+      if (insertError) {
+
+        console.error(
+          "SUPABASE REGISTER ERROR:",
+          insertError
+        );
+
+        if (
+          insertError.code ===
+          "23505"
+        ) {
+
+          const errorText =
+            (
+              String(
+                insertError.message ||
+                ""
+              ) +
+              " " +
+              String(
+                insertError.details ||
+                ""
+              ) +
+              " " +
+              String(
+                insertError.hint ||
+                ""
+              )
+            ).toLowerCase();
+
+          if (
+            errorText.includes(
+              "phone"
+            )
+          ) {
+
+            return res.status(409).json({
+              success: false,
+              message:
+                "Bu telefon numarası zaten kayıtlı."
+            });
+          }
+
+          if (
+            errorText.includes(
+              "email"
+            )
+          ) {
+
+            return res.status(409).json({
+              success: false,
+              message:
+                "Bu e-posta zaten kayıtlı."
+            });
+          }
+
+          if (
+            errorText.includes(
+              "username"
+            )
+          ) {
+
+            return res.status(409).json({
+              success: false,
+              message:
+                "Bu kullanıcı adı zaten kayıtlı."
+            });
+          }
+        }
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Kullanıcı oluşturulamadı."
+        });
+      }
+
+
+      /* DOĞRULAMA MAİLİ */
+
+      try {
+
+        await sendVerificationEmail(
+          cleanEmail,
+          verificationCode
+        );
+
+      } catch (emailError) {
+
+        console.error(
+          "DOĞRULAMA E-POSTASI HATASI:",
+          emailError
+        );
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Hesap oluşturuldu ancak doğrulama e-postası gönderilemedi. Lütfen yeni doğrulama kodu iste."
+        });
+      }
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        message:
+          "Hesap oluşturuldu. Doğrulama kodu e-posta adresine gönderildi.",
+
+        userId:
+          newUser.id
+
+      });
+
+    } catch (error) {
+
+      console.error(
+        "REGISTER ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Kayıt sırasında hata oluştu."
+      });
+    }
+  }
+);
+
+
+/* =========================
+   VERIFY EMAIL
+========================= */
 
 app.post(
   "/api/auth/verify-email",
   async (req, res) => {
-    try {
-      const email = String(
-        req.body.email || ""
-      )
-        .trim()
-        .toLowerCase();
 
-      const code = String(
-        req.body.code || ""
-      ).trim();
+    try {
+
+      const email =
+        String(
+          req.body.email || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const code =
+        String(
+          req.body.code || ""
+        ).trim();
 
       if (!email || !code) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -622,12 +829,16 @@ app.post(
       } = await supabase
         .from("users")
         .select("*")
-        .eq("email", email)
+        .eq(
+          "email",
+          email
+        )
         .maybeSingle();
 
       if (error) {
+
         console.error(
-          "DOĞRULAMA KULLANICI HATASI:",
+          "VERIFY USER ERROR:",
           error
         );
 
@@ -639,6 +850,7 @@ app.post(
       }
 
       if (!user) {
+
         return res.status(404).json({
           success: false,
           message:
@@ -647,8 +859,11 @@ app.post(
       }
 
       if (
-        Number(user.email_verified) === 1
+        Number(
+          user.email_verified
+        ) === 1
       ) {
+
         return res.json({
           success: true,
           message:
@@ -660,6 +875,7 @@ app.post(
         !user.verification_code_hash ||
         !user.verification_expires_at
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -670,8 +886,10 @@ app.post(
       if (
         new Date(
           user.verification_expires_at
-        ).getTime() < Date.now()
+        ).getTime() <
+        Date.now()
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -686,6 +904,7 @@ app.post(
         );
 
       if (!codeCorrect) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -698,15 +917,26 @@ app.post(
       } = await supabase
         .from("users")
         .update({
-          email_verified: 1,
-          verification_code_hash: null,
-          verification_expires_at: null
+
+          email_verified:
+            1,
+
+          verification_code_hash:
+            null,
+
+          verification_expires_at:
+            null
+
         })
-        .eq("id", user.id);
+        .eq(
+          "id",
+          user.id
+        );
 
       if (updateError) {
+
         console.error(
-          "DOĞRULAMA GÜNCELLEME HATASI:",
+          "VERIFY UPDATE ERROR:",
           updateError
         );
 
@@ -724,8 +954,9 @@ app.post(
       });
 
     } catch (error) {
+
       console.error(
-        "EMAIL DOĞRULAMA HATASI:",
+        "VERIFY EMAIL ERROR:",
         error
       );
 
@@ -738,24 +969,30 @@ app.post(
   }
 );
 
-/* =========================================================
-   DOĞRULAMA KODUNU YENİDEN GÖNDER
-========================================================= */
+
+/* =========================
+   RESEND VERIFICATION
+========================= */
 
 app.post(
   "/api/auth/resend-verification",
   async (req, res) => {
+
     try {
-      const email = String(
-        req.body.email || ""
-      )
-        .trim()
-        .toLowerCase();
+
+      const email =
+        String(
+          req.body.email || ""
+        )
+          .trim()
+          .toLowerCase();
 
       if (!email) {
+
         return res.status(400).json({
           success: false,
-          message: "E-posta gerekli."
+          message:
+            "E-posta gerekli."
         });
       }
 
@@ -765,12 +1002,16 @@ app.post(
       } = await supabase
         .from("users")
         .select("*")
-        .eq("email", email)
+        .eq(
+          "email",
+          email
+        )
         .maybeSingle();
 
       if (error) {
+
         console.error(
-          "RESEND KULLANICI HATASI:",
+          "RESEND USER ERROR:",
           error
         );
 
@@ -782,6 +1023,7 @@ app.post(
       }
 
       if (!user) {
+
         return res.status(404).json({
           success: false,
           message:
@@ -790,8 +1032,11 @@ app.post(
       }
 
       if (
-        Number(user.email_verified) === 1
+        Number(
+          user.email_verified
+        ) === 1
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -801,7 +1046,10 @@ app.post(
 
       const verificationCode =
         crypto
-          .randomInt(100000, 1000000)
+          .randomInt(
+            100000,
+            1000000
+          )
           .toString();
 
       const verificationCodeHash =
@@ -812,7 +1060,8 @@ app.post(
 
       const verificationExpiresAt =
         new Date(
-          Date.now() + 10 * 60 * 1000
+          Date.now() +
+          10 * 60 * 1000
         ).toISOString();
 
       const {
@@ -820,14 +1069,21 @@ app.post(
       } = await supabase
         .from("users")
         .update({
+
           verification_code_hash:
             verificationCodeHash,
+
           verification_expires_at:
             verificationExpiresAt
+
         })
-        .eq("id", user.id);
+        .eq(
+          "id",
+          user.id
+        );
 
       if (updateError) {
+
         console.error(
           "RESEND UPDATE ERROR:",
           updateError
@@ -841,11 +1097,14 @@ app.post(
       }
 
       try {
+
         await sendVerificationEmail(
           email,
           verificationCode
         );
+
       } catch (emailError) {
+
         console.error(
           "TEKRAR DOĞRULAMA E-POSTASI HATASI:",
           emailError
@@ -861,12 +1120,13 @@ app.post(
       return res.json({
         success: true,
         message:
-          "Yeni doğrulama kodu e-posta ile gönderildi."
+          "Yeni doğrulama kodu e-posta adresine gönderildi."
       });
 
     } catch (error) {
+
       console.error(
-        "DOĞRULAMA YENİDEN GÖNDERME HATASI:",
+        "RESEND VERIFICATION ERROR:",
         error
       );
 
@@ -879,35 +1139,48 @@ app.post(
   }
 );
 
-/* =========================================================
-   GİRİŞ
-========================================================= */
+
+/* =========================
+   LOGIN
+========================= */
 
 app.post(
   "/api/auth/login",
   async (req, res) => {
+
     try {
+
       const {
         login,
         username,
+        email,
         password
       } = req.body;
 
-      const loginValue = String(
-        login || username || ""
-      ).trim();
 
-      if (!loginValue || !password) {
+      const loginValue =
+        String(
+          login ||
+          username ||
+          email ||
+          ""
+        ).trim();
+
+
+      if (
+        !loginValue ||
+        !password
+      ) {
+
         return res.status(400).json({
           success: false,
           message:
-            "Kullanıcı adı/e-posta ve şifre gereklidir."
+            "Kullanıcı adı/e-posta ve şifre gerekli."
         });
       }
 
-      /* =========================
-         ÖNCE KULLANICI ADI
-      ========================= */
+
+      /* KULLANICI ADI */
 
       const {
         data: usernameUser,
@@ -915,10 +1188,15 @@ app.post(
       } = await supabase
         .from("users")
         .select("*")
-        .eq("username", loginValue)
+        .eq(
+          "username",
+          loginValue
+        )
         .maybeSingle();
 
+
       if (usernameError) {
+
         console.error(
           "LOGIN USERNAME ERROR:",
           usernameError
@@ -931,13 +1209,15 @@ app.post(
         });
       }
 
-      let user = usernameUser;
 
-      /* =========================
-         SONRA E-POSTA
-      ========================= */
+      let user =
+        usernameUser;
+
+
+      /* E-POSTA */
 
       if (!user) {
+
         const {
           data: emailUser,
           error: emailError
@@ -950,7 +1230,9 @@ app.post(
           )
           .maybeSingle();
 
+
         if (emailError) {
+
           console.error(
             "LOGIN EMAIL ERROR:",
             emailError
@@ -963,10 +1245,13 @@ app.post(
           });
         }
 
-        user = emailUser;
+        user =
+          emailUser;
       }
 
+
       if (!user) {
+
         return res.status(401).json({
           success: false,
           message:
@@ -974,23 +1259,36 @@ app.post(
         });
       }
 
-      /* =========================
-         E-POSTA DOĞRULAMA
-      ========================= */
+
+      /* E-POSTA DOĞRULANDI MI? */
 
       if (
-        Number(user.email_verified) !== 1
+        Number(
+          user.email_verified
+        ) !== 1
       ) {
+
         return res.status(403).json({
           success: false,
           message:
-            "Önce e-posta adresinizi doğrulamalısınız."
+            "Önce e-posta adresini doğrulamalısın."
         });
       }
 
-      /* =========================
-         ŞİFRE KONTROLÜ
-      ========================= */
+
+      /* ŞİFRE */
+
+      if (
+        !user.password_hash
+      ) {
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Bu hesap için şifre bilgisi bulunamadı."
+        });
+      }
+
 
       const passwordCorrect =
         await bcrypt.compare(
@@ -998,7 +1296,9 @@ app.post(
           user.password_hash
         );
 
+
       if (!passwordCorrect) {
+
         return res.status(401).json({
           success: false,
           message:
@@ -1006,30 +1306,53 @@ app.post(
         });
       }
 
-      /* =========================
-         GÜVENLİ KULLANICI
-      ========================= */
 
       const safeUser = {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: "user"
+
+        id:
+          user.id,
+
+        username:
+          user.username,
+
+        email:
+          user.email,
+
+        phone:
+          user.phone || "",
+
+        role:
+          "user"
+
       };
 
+
       const token =
-        createToken(safeUser);
+        createToken(
+          safeUser
+        );
+
 
       return res.json({
-        success: true,
-        message: "Giriş başarılı.",
-        user: safeUser,
-        token
+
+        success:
+          true,
+
+        message:
+          "Giriş başarılı.",
+
+        user:
+          safeUser,
+
+        token:
+          token
+
       });
 
     } catch (error) {
+
       console.error(
-        "GİRİŞ HATASI:",
+        "LOGIN ERROR:",
         error
       );
 
@@ -1042,26 +1365,34 @@ app.post(
   }
 );
 
-/* =========================================================
-   ŞİFREMİ UNUTTUM
-========================================================= */
+
+/* =========================
+   FORGOT PASSWORD
+========================= */
 
 app.post(
   "/api/auth/forgot-password",
   async (req, res) => {
+
     try {
-      const email = String(
-        req.body.email || ""
-      )
-        .trim()
-        .toLowerCase();
+
+      const email =
+        String(
+          req.body.email || ""
+        )
+          .trim()
+          .toLowerCase();
+
 
       if (!email) {
+
         return res.status(400).json({
           success: false,
-          message: "E-posta gerekli."
+          message:
+            "E-posta gerekli."
         });
       }
+
 
       const {
         data: user,
@@ -1069,12 +1400,17 @@ app.post(
       } = await supabase
         .from("users")
         .select("*")
-        .eq("email", email)
+        .eq(
+          "email",
+          email
+        )
         .maybeSingle();
 
+
       if (error) {
+
         console.error(
-          "FORGOT PASSWORD USER ERROR:",
+          "FORGOT USER ERROR:",
           error
         );
 
@@ -1085,7 +1421,9 @@ app.post(
         });
       }
 
+
       if (!user) {
+
         return res.status(404).json({
           success: false,
           message:
@@ -1093,34 +1431,53 @@ app.post(
         });
       }
 
+
       const code =
         crypto
-          .randomInt(100000, 1000000)
+          .randomInt(
+            100000,
+            1000000
+          )
           .toString();
 
+
       const codeHash =
-        await bcrypt.hash(code, 10);
+        await bcrypt.hash(
+          code,
+          10
+        );
+
 
       const expiresAt =
         new Date(
-          Date.now() + 10 * 60 * 1000
+          Date.now() +
+          10 * 60 * 1000
         ).toISOString();
+
 
       const {
         error: updateError
       } = await supabase
         .from("users")
         .update({
+
           verification_code_hash:
             codeHash,
+
           verification_expires_at:
             expiresAt
+
         })
-        .eq("id", user.id);
+        .eq(
+          "id",
+          user.id
+        );
+
 
       if (updateError) {
+
         console.error(
-          "FORGOT PASSWORD UPDATE ERROR:",
+          "FORGOT UPDATE ERROR:",
           updateError
         );
 
@@ -1131,20 +1488,23 @@ app.post(
         });
       }
 
+
       await sendPasswordResetEmail(
         email,
         code
       );
 
+
       return res.json({
         success: true,
         message:
-          "Şifre sıfırlama kodu e-posta ile gönderildi."
+          "Şifre sıfırlama kodu e-posta adresine gönderildi."
       });
 
     } catch (error) {
+
       console.error(
-        "ŞİFRE UNUTTUM HATASI:",
+        "FORGOT PASSWORD ERROR:",
         error
       );
 
@@ -1157,14 +1517,17 @@ app.post(
   }
 );
 
-/* =========================================================
-   ŞİFRE SIFIRLAMA
-========================================================= */
+
+/* =========================
+   RESET PASSWORD
+========================= */
 
 app.post(
   "/api/auth/reset-password",
   async (req, res) => {
+
     try {
+
       const {
         email,
         code,
@@ -1172,11 +1535,14 @@ app.post(
         passwordConfirm
       } = req.body;
 
-      const cleanEmail = String(
-        email || ""
-      )
-        .trim()
-        .toLowerCase();
+
+      const cleanEmail =
+        String(
+          email || ""
+        )
+          .trim()
+          .toLowerCase();
+
 
       if (
         !cleanEmail ||
@@ -1184,6 +1550,7 @@ app.post(
         !password ||
         !passwordConfirm
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1191,9 +1558,12 @@ app.post(
         });
       }
 
+
       if (
-        password !== passwordConfirm
+        password !==
+        passwordConfirm
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1201,7 +1571,11 @@ app.post(
         });
       }
 
-      if (password.length < 6) {
+
+      if (
+        password.length < 6
+      ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1209,16 +1583,22 @@ app.post(
         });
       }
 
+
       const {
         data: user,
         error
       } = await supabase
         .from("users")
         .select("*")
-        .eq("email", cleanEmail)
+        .eq(
+          "email",
+          cleanEmail
+        )
         .maybeSingle();
 
+
       if (error) {
+
         console.error(
           "RESET USER ERROR:",
           error
@@ -1231,7 +1611,9 @@ app.post(
         });
       }
 
+
       if (!user) {
+
         return res.status(404).json({
           success: false,
           message:
@@ -1239,10 +1621,12 @@ app.post(
         });
       }
 
+
       if (
         !user.verification_code_hash ||
         !user.verification_expires_at
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1250,11 +1634,14 @@ app.post(
         });
       }
 
+
       if (
         new Date(
           user.verification_expires_at
-        ).getTime() < Date.now()
+        ).getTime() <
+        Date.now()
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1262,13 +1649,16 @@ app.post(
         });
       }
 
+
       const codeCorrect =
         await bcrypt.compare(
           String(code).trim(),
           user.verification_code_hash
         );
 
+
       if (!codeCorrect) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1276,27 +1666,38 @@ app.post(
         });
       }
 
+
       const passwordHash =
         await bcrypt.hash(
           password,
           12
         );
 
+
       const {
         error: updateError
       } = await supabase
         .from("users")
         .update({
+
           password_hash:
             passwordHash,
+
           verification_code_hash:
             null,
+
           verification_expires_at:
             null
+
         })
-        .eq("id", user.id);
+        .eq(
+          "id",
+          user.id
+        );
+
 
       if (updateError) {
+
         console.error(
           "RESET UPDATE ERROR:",
           updateError
@@ -1309,6 +1710,7 @@ app.post(
         });
       }
 
+
       return res.json({
         success: true,
         message:
@@ -1316,8 +1718,9 @@ app.post(
       });
 
     } catch (error) {
+
       console.error(
-        "ŞİFRE SIFIRLAMA HATASI:",
+        "RESET PASSWORD ERROR:",
         error
       );
 
@@ -1330,16 +1733,23 @@ app.post(
   }
 );
 
-/* =========================================================
-   ŞİFRE DEĞİŞTİRME
-========================================================= */
+
+/* =========================
+   CHANGE PASSWORD
+========================= */
 
 app.post(
   "/api/auth/change-password",
   authenticateUser,
   async (req, res) => {
+
     try {
-      if (req.user.role === "admin") {
+
+      if (
+        req.user.role ===
+        "admin"
+      ) {
+
         return res.status(403).json({
           success: false,
           message:
@@ -1347,17 +1757,20 @@ app.post(
         });
       }
 
+
       const {
         currentPassword,
         newPassword,
         newPasswordConfirm
       } = req.body;
 
+
       if (
         !currentPassword ||
         !newPassword ||
         !newPasswordConfirm
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1365,9 +1778,12 @@ app.post(
         });
       }
 
+
       if (
-        newPassword !== newPasswordConfirm
+        newPassword !==
+        newPasswordConfirm
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1375,7 +1791,11 @@ app.post(
         });
       }
 
-      if (newPassword.length < 6) {
+
+      if (
+        newPassword.length < 6
+      ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1383,16 +1803,22 @@ app.post(
         });
       }
 
+
       const {
         data: user,
         error
       } = await supabase
         .from("users")
         .select("*")
-        .eq("id", req.user.id)
+        .eq(
+          "id",
+          req.user.id
+        )
         .maybeSingle();
 
+
       if (error) {
+
         console.error(
           "CHANGE PASSWORD USER ERROR:",
           error
@@ -1405,7 +1831,9 @@ app.post(
         });
       }
 
+
       if (!user) {
+
         return res.status(404).json({
           success: false,
           message:
@@ -1413,13 +1841,16 @@ app.post(
         });
       }
 
+
       const correct =
         await bcrypt.compare(
           currentPassword,
           user.password_hash
         );
 
+
       if (!correct) {
+
         return res.status(401).json({
           success: false,
           message:
@@ -1427,22 +1858,32 @@ app.post(
         });
       }
 
+
       const newHash =
         await bcrypt.hash(
           newPassword,
           12
         );
 
+
       const {
         error: updateError
       } = await supabase
         .from("users")
         .update({
-          password_hash: newHash
+
+          password_hash:
+            newHash
+
         })
-        .eq("id", req.user.id);
+        .eq(
+          "id",
+          req.user.id
+        );
+
 
       if (updateError) {
+
         console.error(
           "CHANGE PASSWORD UPDATE ERROR:",
           updateError
@@ -1455,6 +1896,7 @@ app.post(
         });
       }
 
+
       return res.json({
         success: true,
         message:
@@ -1462,8 +1904,9 @@ app.post(
       });
 
     } catch (error) {
+
       console.error(
-        "ŞİFRE DEĞİŞTİRME HATASI:",
+        "CHANGE PASSWORD ERROR:",
         error
       );
 
@@ -1476,21 +1919,30 @@ app.post(
   }
 );
 
-/* =========================================================
-   BENİM HESABIM
-========================================================= */
+
+/* =========================
+   ME
+========================= */
 
 app.get(
   "/api/auth/me",
   authenticateUser,
   async (req, res) => {
+
     try {
-      if (req.user.role === "admin") {
+
+      if (
+        req.user.role ===
+        "admin"
+      ) {
+
         return res.json({
           success: true,
-          user: req.user
+          user:
+            req.user
         });
       }
+
 
       const {
         data: user,
@@ -1500,72 +1952,103 @@ app.get(
         .select(
           "id, username, email, phone, created_at, email_verified"
         )
-        .eq("id", req.user.id)
+        .eq(
+          "id",
+          req.user.id
+        )
         .maybeSingle();
 
+
       if (error) {
+
         console.error(
-          "ME USER ERROR:",
+          "ME ERROR:",
           error
         );
 
         return res.status(500).json({
           success: false,
           message:
-            "Kullanıcı bilgisi alınamadı."
+            "Kullanıcı bilgileri alınamadı."
         });
       }
 
+
       if (!user) {
+
         return res.status(404).json({
           success: false,
           message:
-            "Kullanıcı bilgisi bulunamadı."
+            "Kullanıcı bulunamadı."
         });
       }
 
+
       return res.json({
+
         success: true,
 
         user: {
           ...user,
-          role: "user"
+          role:
+            "user"
         }
+
       });
 
     } catch (error) {
+
       console.error(
-        "ME HATASI:",
+        "ME ERROR:",
         error
       );
 
       return res.status(500).json({
         success: false,
         message:
-          "Kullanıcı bilgisi alınamadı."
+          "Kullanıcı bilgileri alınamadı."
       });
     }
   }
 );
 
-/* =========================================================
+
+/* =========================
    FAVORİLERİ GETİR
-========================================================= */
+========================= */
 
 app.get(
   "/api/favorites",
   authenticateUser,
   async (req, res) => {
+
     try {
+
+      if (
+        req.user.role ===
+        "admin"
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin hesabında favoriler kullanılamaz."
+        });
+      }
+
+
       const {
         data: favorites,
         error
       } = await supabase
         .from("favorites")
         .select(
-          "id, product_id, created_at"
+          "id, user_id, product_id, created_at"
         )
-        .eq("user_id", req.user.id)
+        .eq(
+          "user_id",
+          req.user.id
+        )
         .order(
           "created_at",
           {
@@ -1573,9 +2056,11 @@ app.get(
           }
         );
 
+
       if (error) {
+
         console.error(
-          "FAVORİLER GETİRME HATASI:",
+          "GET FAVORITES ERROR:",
           error
         );
 
@@ -1586,14 +2071,20 @@ app.get(
         });
       }
 
+
       return res.json({
+
         success: true,
-        favorites: favorites || []
+
+        favorites:
+          favorites || []
+
       });
 
     } catch (error) {
+
       console.error(
-        "FAVORİLER HATASI:",
+        "FAVORITES ERROR:",
         error
       );
 
@@ -1606,23 +2097,44 @@ app.get(
   }
 );
 
-/* =========================================================
+
+/* =========================
    FAVORİ EKLE
-========================================================= */
+========================= */
 
 app.post(
   "/api/favorites",
   authenticateUser,
   async (req, res) => {
+
     try {
-      const productId = Number(
-        req.body.productId
-      );
 
       if (
-        !Number.isInteger(productId) ||
+        req.user.role ===
+        "admin"
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin hesabında favoriler kullanılamaz."
+        });
+      }
+
+
+      const productId =
+        Number(
+          req.body.productId
+        );
+
+
+      if (
+        !Number.isInteger(
+          productId
+        ) ||
         productId <= 0
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1630,84 +2142,154 @@ app.post(
         });
       }
 
+
       const {
-        data,
+        data: favorite,
         error
       } = await supabase
         .from("favorites")
-        .upsert(
-          {
-            user_id: req.user.id,
-            product_id: productId
-          },
-          {
-            onConflict:
-              "user_id,product_id"
-          }
-        )
+        .insert({
+
+          user_id:
+            req.user.id,
+
+          product_id:
+            productId
+
+        })
         .select(
-          "id, product_id, created_at"
+          "id, user_id, product_id, created_at"
         )
         .single();
 
+
       if (error) {
+
+        /* ZATEN FAVORİDEYSE */
+
+        if (
+          error.code ===
+          "23505"
+        ) {
+
+          const {
+            data: existing
+          } = await supabase
+            .from("favorites")
+            .select(
+              "id, user_id, product_id, created_at"
+            )
+            .eq(
+              "user_id",
+              req.user.id
+            )
+            .eq(
+              "product_id",
+              productId
+            )
+            .maybeSingle();
+
+
+          return res.json({
+
+            success: true,
+
+            message:
+              "Ürün zaten favorilerinde.",
+
+            favorite:
+              existing
+
+          });
+        }
+
+
         console.error(
-          "FAVORİ EKLEME HATASI:",
+          "ADD FAVORITE ERROR:",
           error
         );
 
         return res.status(500).json({
           success: false,
           message:
-            "Favorilere eklenemedi."
+            "Favori eklenemedi."
         });
       }
 
-      return res.json({
+
+      return res.status(201).json({
+
         success: true,
+
         message:
           "Ürün favorilere eklendi.",
-        favorite: data
+
+        favorite:
+          favorite
+
       });
 
     } catch (error) {
+
       console.error(
-        "FAVORİ EKLEME HATASI:",
+        "ADD FAVORITE ERROR:",
         error
       );
 
       return res.status(500).json({
         success: false,
         message:
-          "Favorilere eklenemedi."
+          "Favori eklenemedi."
       });
     }
   }
 );
 
-/* =========================================================
+
+/* =========================
    FAVORİ SİL
-========================================================= */
+========================= */
 
 app.delete(
   "/api/favorites/:productId",
   authenticateUser,
   async (req, res) => {
+
     try {
-      const productId = Number(
-        req.params.productId
-      );
 
       if (
-        !Number.isInteger(productId) ||
+        req.user.role ===
+        "admin"
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin hesabında favoriler kullanılamaz."
+        });
+      }
+
+
+      const productId =
+        Number(
+          req.params.productId
+        );
+
+
+      if (
+        !Number.isInteger(
+          productId
+        ) ||
         productId <= 0
       ) {
+
         return res.status(400).json({
           success: false,
           message:
             "Geçersiz ürün ID."
         });
       }
+
 
       const {
         error
@@ -1723,49 +2305,72 @@ app.delete(
           productId
         );
 
+
       if (error) {
+
         console.error(
-          "FAVORİ SİLME HATASI:",
+          "DELETE FAVORITE ERROR:",
           error
         );
 
         return res.status(500).json({
           success: false,
           message:
-            "Favoriden çıkarılamadı."
+            "Favori silinemedi."
         });
       }
 
+
       return res.json({
+
         success: true,
+
         message:
           "Ürün favorilerden çıkarıldı."
+
       });
 
     } catch (error) {
+
       console.error(
-        "FAVORİ SİLME HATASI:",
+        "DELETE FAVORITE ERROR:",
         error
       );
 
       return res.status(500).json({
         success: false,
         message:
-          "Favoriden çıkarılamadı."
+          "Favori silinemedi."
       });
     }
   }
 );
 
-/* =========================================================
-   KULLANICININ SİPARİŞLERİ
-========================================================= */
+
+/* =========================
+   SİPARİŞLERİM
+========================= */
 
 app.get(
   "/api/orders/my",
   authenticateUser,
   async (req, res) => {
+
     try {
+
+      if (
+        req.user.role ===
+        "admin"
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin hesabı için bu bölüm kullanılamaz."
+        });
+      }
+
+
       const {
         data: orders,
         error
@@ -1777,15 +2382,17 @@ app.get(
           req.user.id
         )
         .order(
-          "created_at",
+          "id",
           {
             ascending: false
           }
         );
 
+
       if (error) {
+
         console.error(
-          "SİPARİŞLERİM HATASI:",
+          "MY ORDERS ERROR:",
           error
         );
 
@@ -1796,14 +2403,20 @@ app.get(
         });
       }
 
+
       return res.json({
+
         success: true,
-        orders: orders || []
+
+        orders:
+          orders || []
+
       });
 
     } catch (error) {
+
       console.error(
-        "SİPARİŞLERİM HATASI:",
+        "MY ORDERS ERROR:",
         error
       );
 
@@ -1816,20 +2429,28 @@ app.get(
   }
 );
 
-/* =========================================================
-   ADMIN GİRİŞİ
-========================================================= */
+
+/* =========================
+   ADMIN LOGIN
+========================= */
 
 app.post(
   "/api/admin/login",
   (req, res) => {
+
     try {
+
       const {
         username,
         password
       } = req.body;
 
-      if (!username || !password) {
+
+      if (
+        !username ||
+        !password
+      ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -1837,10 +2458,14 @@ app.post(
         });
       }
 
+
       if (
-        username !== ADMIN_USERNAME ||
-        password !== ADMIN_PASSWORD
+        username !==
+          ADMIN_USERNAME ||
+        password !==
+          ADMIN_PASSWORD
       ) {
+
         return res.status(401).json({
           success: false,
           message:
@@ -1848,46 +2473,67 @@ app.post(
         });
       }
 
+
       const admin = {
-        username: ADMIN_USERNAME,
-        role: "admin"
+
+        username:
+          ADMIN_USERNAME,
+
+        role:
+          "admin"
+
       };
 
+
       const token =
-        createToken(admin);
+        createToken(
+          admin
+        );
+
 
       return res.json({
+
         success: true,
+
         message:
-          "Yönetici girişi başarılı.",
-        user: admin,
-        token
+          "Admin girişi başarılı.",
+
+        user:
+          admin,
+
+        token:
+          token
+
       });
 
     } catch (error) {
+
       console.error(
-        "ADMIN GİRİŞ HATASI:",
+        "ADMIN LOGIN ERROR:",
         error
       );
 
       return res.status(500).json({
         success: false,
         message:
-          "Yönetici girişinde hata oluştu."
+          "Admin girişinde hata oluştu."
       });
     }
   }
 );
 
-/* =========================================================
-   ADMIN İSTATİSTİKLERİ
-========================================================= */
+
+/* =========================
+   ADMIN STATS
+========================= */
 
 app.get(
   "/api/admin/stats",
   authenticateAdmin,
   async (req, res) => {
+
     try {
+
       const {
         count: userCount,
         error: userError
@@ -1896,14 +2542,18 @@ app.get(
         .select(
           "id",
           {
-            count: "exact",
-            head: true
+            count:
+              "exact",
+            head:
+              true
           }
         );
+
 
       if (userError) {
         throw userError;
       }
+
 
       const {
         count: orderCount,
@@ -1913,14 +2563,18 @@ app.get(
         .select(
           "id",
           {
-            count: "exact",
-            head: true
+            count:
+              "exact",
+            head:
+              true
           }
         );
+
 
       if (orderError) {
         throw orderError;
       }
+
 
       const {
         count: newOrderCount,
@@ -1930,8 +2584,10 @@ app.get(
         .select(
           "id",
           {
-            count: "exact",
-            head: true
+            count:
+              "exact",
+            head:
+              true
           }
         )
         .eq(
@@ -1939,9 +2595,11 @@ app.get(
           "Yeni"
         );
 
+
       if (newOrderError) {
         throw newOrderError;
       }
+
 
       const {
         data: totals,
@@ -1952,27 +2610,39 @@ app.get(
           "total, status"
         );
 
+
       if (totalError) {
         throw totalError;
       }
 
+
       let totalAmount = 0;
 
+
       for (
-        const order of totals || []
+        const order of
+          totals || []
       ) {
+
         if (
-          order.status !== "İptal"
+          order.status !==
+          "İptal"
         ) {
+
           totalAmount +=
-            Number(order.total) || 0;
+            Number(
+              order.total
+            ) || 0;
         }
       }
 
+
       return res.json({
+
         success: true,
 
         stats: {
+
           userCount:
             userCount || 0,
 
@@ -1982,13 +2652,17 @@ app.get(
           newOrderCount:
             newOrderCount || 0,
 
-          totalAmount
+          totalAmount:
+            totalAmount
+
         }
+
       });
 
     } catch (error) {
+
       console.error(
-        "ADMIN İSTATİSTİK HATASI:",
+        "ADMIN STATS ERROR:",
         error
       );
 
@@ -2001,15 +2675,18 @@ app.get(
   }
 );
 
-/* =========================================================
-   ADMIN KULLANICILARI
-========================================================= */
+
+/* =========================
+   ADMIN USERS
+========================= */
 
 app.get(
   "/api/admin/users",
   authenticateAdmin,
   async (req, res) => {
+
     try {
+
       const {
         data: users,
         error
@@ -2021,22 +2698,30 @@ app.get(
         .order(
           "id",
           {
-            ascending: false
+            ascending:
+              false
           }
         );
+
 
       if (error) {
         throw error;
       }
 
+
       return res.json({
+
         success: true,
-        users: users || []
+
+        users:
+          users || []
+
       });
 
     } catch (error) {
+
       console.error(
-        "ADMIN KULLANICILARI HATASI:",
+        "ADMIN USERS ERROR:",
         error
       );
 
@@ -2049,22 +2734,28 @@ app.get(
   }
 );
 
-/* =========================================================
-   ADMIN KULLANICI SİL
-========================================================= */
+
+/* =========================
+   ADMIN USER DELETE
+========================= */
 
 app.delete(
   "/api/admin/users/:id",
   authenticateAdmin,
   async (req, res) => {
+
     try {
-      const id = Number(
-        req.params.id
-      );
+
+      const id =
+        Number(
+          req.params.id
+        );
+
 
       if (
         !Number.isInteger(id)
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -2072,20 +2763,27 @@ app.delete(
         });
       }
 
+
       const {
         data: user,
         error: findError
       } = await supabase
         .from("users")
         .select("id")
-        .eq("id", id)
+        .eq(
+          "id",
+          id
+        )
         .maybeSingle();
+
 
       if (findError) {
         throw findError;
       }
 
+
       if (!user) {
+
         return res.status(404).json({
           success: false,
           message:
@@ -2093,26 +2791,36 @@ app.delete(
         });
       }
 
+
       const {
         error: deleteError
       } = await supabase
         .from("users")
         .delete()
-        .eq("id", id);
+        .eq(
+          "id",
+          id
+        );
+
 
       if (deleteError) {
         throw deleteError;
       }
 
+
       return res.json({
+
         success: true,
+
         message:
           "Kullanıcı silindi."
+
       });
 
     } catch (error) {
+
       console.error(
-        "ADMIN KULLANICI SİLME HATASI:",
+        "ADMIN USER DELETE ERROR:",
         error
       );
 
@@ -2125,15 +2833,18 @@ app.delete(
   }
 );
 
-/* =========================================================
-   ADMIN SİPARİŞLER
-========================================================= */
+
+/* =========================
+   ADMIN ORDERS
+========================= */
 
 app.get(
   "/api/admin/orders",
   authenticateAdmin,
   async (req, res) => {
+
     try {
+
       const {
         data: orders,
         error
@@ -2143,22 +2854,30 @@ app.get(
         .order(
           "id",
           {
-            ascending: false
+            ascending:
+              false
           }
         );
+
 
       if (error) {
         throw error;
       }
 
+
       return res.json({
+
         success: true,
-        orders: orders || []
+
+        orders:
+          orders || []
+
       });
 
     } catch (error) {
+
       console.error(
-        "ADMIN SİPARİŞLER HATASI:",
+        "ADMIN ORDERS ERROR:",
         error
       );
 
@@ -2171,33 +2890,47 @@ app.get(
   }
 );
 
-/* =========================================================
-   ADMIN SİPARİŞ DURUMU
-========================================================= */
+
+/* =========================
+   ADMIN ORDER STATUS
+========================= */
 
 app.patch(
   "/api/admin/orders/:id/status",
   authenticateAdmin,
   async (req, res) => {
-    try {
-      const id = Number(
-        req.params.id
-      );
 
-      const { status } =
-        req.body;
+    try {
+
+      const id =
+        Number(
+          req.params.id
+        );
+
+      const {
+        status
+      } = req.body;
+
 
       const allowedStatuses = [
+
         "Yeni",
+
         "Hazırlanıyor",
+
         "Kargoda",
+
         "Teslim Edildi",
+
         "İptal"
+
       ];
+
 
       if (
         !Number.isInteger(id)
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -2205,11 +2938,13 @@ app.patch(
         });
       }
 
+
       if (
         !allowedStatuses.includes(
           status
         )
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -2217,20 +2952,27 @@ app.patch(
         });
       }
 
+
       const {
         data: existingOrder,
         error: findError
       } = await supabase
         .from("orders")
-        .select("id")
-        .eq("id", id)
+        .select("*")
+        .eq(
+          "id",
+          id
+        )
         .maybeSingle();
+
 
       if (findError) {
         throw findError;
       }
 
+
       if (!existingOrder) {
+
         return res.status(404).json({
           success: false,
           message:
@@ -2238,28 +2980,41 @@ app.patch(
         });
       }
 
+
       const {
         error: updateError
       } = await supabase
         .from("orders")
         .update({
-          status
+
+          status:
+            status
+
         })
-        .eq("id", id);
+        .eq(
+          "id",
+          id
+        );
+
 
       if (updateError) {
         throw updateError;
       }
 
+
       return res.json({
+
         success: true,
+
         message:
           "Sipariş durumu güncellendi."
+
       });
 
     } catch (error) {
+
       console.error(
-        "ADMIN SİPARİŞ DURUM HATASI:",
+        "ADMIN ORDER STATUS ERROR:",
         error
       );
 
@@ -2272,22 +3027,28 @@ app.patch(
   }
 );
 
-/* =========================================================
-   ADMIN SİPARİŞ SİL
-========================================================= */
+
+/* =========================
+   ADMIN ORDER DELETE
+========================= */
 
 app.delete(
   "/api/admin/orders/:id",
   authenticateAdmin,
   async (req, res) => {
+
     try {
-      const id = Number(
-        req.params.id
-      );
+
+      const id =
+        Number(
+          req.params.id
+        );
+
 
       if (
         !Number.isInteger(id)
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -2295,20 +3056,27 @@ app.delete(
         });
       }
 
+
       const {
         data: order,
         error: findError
       } = await supabase
         .from("orders")
         .select("id")
-        .eq("id", id)
+        .eq(
+          "id",
+          id
+        )
         .maybeSingle();
+
 
       if (findError) {
         throw findError;
       }
 
+
       if (!order) {
+
         return res.status(404).json({
           success: false,
           message:
@@ -2316,26 +3084,36 @@ app.delete(
         });
       }
 
+
       const {
         error: deleteError
       } = await supabase
         .from("orders")
         .delete()
-        .eq("id", id);
+        .eq(
+          "id",
+          id
+        );
+
 
       if (deleteError) {
         throw deleteError;
       }
 
+
       return res.json({
+
         success: true,
+
         message:
           "Sipariş silindi."
+
       });
 
     } catch (error) {
+
       console.error(
-        "ADMIN SİPARİŞ SİLME HATASI:",
+        "ADMIN ORDER DELETE ERROR:",
         error
       );
 
@@ -2348,15 +3126,31 @@ app.delete(
   }
 );
 
-/* =========================================================
-   SİPARİŞ OLUŞTUR
-========================================================= */
+
+/* =========================
+   ORDER
+========================= */
 
 app.post(
   "/api/order",
   authenticateUser,
   async (req, res) => {
+
     try {
+
+      if (
+        req.user.role ===
+        "admin"
+      ) {
+
+        return res.status(403).json({
+          success: false,
+          message:
+            "Admin sipariş oluşturamaz."
+        });
+      }
+
+
       const {
         customerName,
         customerPhone,
@@ -2366,12 +3160,14 @@ app.post(
         total
       } = req.body;
 
+
       if (
         !customerName ||
         !customerPhone ||
         !customerAddress ||
         !items
       ) {
+
         return res.status(400).json({
           success: false,
           message:
@@ -2379,11 +3175,28 @@ app.post(
         });
       }
 
+
+      if (
+        !Array.isArray(items)
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          message:
+            "Sipariş ürünleri geçersiz."
+        });
+      }
+
+
       const itemsJson =
-        JSON.stringify(items);
+        JSON.stringify(
+          items
+        );
+
 
       const createdAt =
         new Date().toISOString();
+
 
       const {
         data: newOrder,
@@ -2391,7 +3204,9 @@ app.post(
       } = await supabase
         .from("orders")
         .insert({
-          user_id: req.user.id,
+
+          user_id:
+            req.user.id,
 
           customer_name:
             customerName,
@@ -2416,13 +3231,18 @@ app.post(
 
           created_at:
             createdAt
+
         })
-        .select("id")
+        .select(
+          "id, user_id, customer_name, customer_phone, customer_address, customer_note, items_json, total, status, created_at"
+        )
         .single();
 
+
       if (error) {
+
         console.error(
-          "SİPARİŞ OLUŞTURMA HATASI:",
+          "SUPABASE ORDER ERROR:",
           error
         );
 
@@ -2433,62 +3253,103 @@ app.post(
         });
       }
 
-      /* =========================
-         SİPARİŞ E-POSTASI
-      ========================= */
+
+      /* SİPARİŞ MAİLİ */
 
       try {
+
+        let parsedItems = [];
+
+        try {
+
+          parsedItems =
+            JSON.parse(
+              newOrder.items_json
+            );
+
+        } catch {
+
+          parsedItems = [];
+        }
+
+
         await sendOrderEmail({
-          orderId: newOrder.id,
-          customerName,
-          customerPhone,
-          customerAddress,
+
+          orderId:
+            newOrder.id,
+
+          customerName:
+            newOrder.customer_name,
+
+          customerPhone:
+            newOrder.customer_phone,
+
+          customerAddress:
+            newOrder.customer_address,
+
           customerNote:
-            customerNote || "",
-          items,
+            newOrder.customer_note,
+
+          items:
+            parsedItems,
+
           total:
-            Number(total) || 0
+            newOrder.total
+
         });
+
       } catch (emailError) {
+
         console.error(
           "SİPARİŞ E-POSTASI HATASI:",
           emailError
         );
 
         /*
-          Sipariş oluşturulduğu için
-          e-posta hatası siparişi bozmaz.
+          Sipariş yine de başarılıdır.
+          Sadece e-posta gönderilemezse
+          sipariş iptal edilmez.
         */
       }
 
+
       return res.status(201).json({
+
         success: true,
+
         message:
           "Sipariş başarıyla oluşturuldu.",
+
         orderId:
           newOrder.id
+
       });
 
     } catch (error) {
+
       console.error(
-        "SİPARİŞ HATASI:",
+        "ORDER ERROR:",
         error
       );
 
       return res.status(500).json({
         success: false,
         message:
-          "Sipariş oluşturulamadı."
+          "Sipariş oluşturulurken hata oluştu."
       });
     }
   }
 );
 
-/* =========================================================
-   SİPARİŞ E-POSTASI
-========================================================= */
 
-async function sendOrderEmail(order) {
+/* =========================
+   ORDER EMAIL
+========================= */
+
+async function sendOrderEmail(
+  order
+) {
+
   if (!BREVO_API_KEY) {
     return;
   }
@@ -2497,67 +3358,115 @@ async function sendOrderEmail(order) {
     return;
   }
 
+
   const itemsText =
-    Array.isArray(order.items)
-      ? order.items
-          .map(
-            item =>
-              `${item.name || "Ürün"} x${
-                item.quantity || 1
-              }`
-          )
-          .join("\n")
-      : "Ürün bilgisi yok";
+    Array.isArray(
+      order.items
+    )
+
+    ? order.items
+        .map(
+          item => {
+
+            const name =
+              item.name ||
+              item.productName ||
+              "Ürün";
+
+            const quantity =
+              item.quantity ||
+              1;
+
+            return (
+              `${name} x${quantity}`
+            );
+          }
+        )
+        .join("\n")
+
+    : "Ürün bilgisi yok";
+
 
   const emailText =
-    `Yeni VELORA siparişi\n\n` +
-    `Sipariş No: ${order.orderId}\n` +
-    `Müşteri: ${order.customerName}\n` +
-    `Telefon: ${order.customerPhone}\n` +
-    `Adres: ${order.customerAddress}\n` +
-    `Not: ${order.customerNote || "-"}\n\n` +
-    `Ürünler:\n${itemsText}\n\n` +
-    `Toplam: ${order.total || 0} TL`;
+`
+Yeni VELORA siparişi
+
+Sipariş No: ${order.orderId}
+
+Müşteri: ${order.customerName}
+Telefon: ${order.customerPhone}
+Adres: ${order.customerAddress}
+Not: ${order.customerNote || "-"}
+
+Ürünler:
+${itemsText}
+
+Toplam: ${order.total || 0} TL
+`;
+
 
   return sendBrevoEmail({
-    to: BREVO_SENDER_EMAIL,
+
+    to:
+      BREVO_SENDER_EMAIL,
 
     subject:
       `VELORA Yeni Sipariş #${order.orderId}`,
 
     textContent:
       emailText
+
   });
 }
 
-/* =========================================================
+
+/* =========================
    404
-========================================================= */
+========================= */
 
 app.use(
   (req, res) => {
+
     res.status(404).json({
-      success: false,
+
+      success:
+        false,
+
       message:
         `Endpoint bulunamadı: ${req.method} ${req.originalUrl}`
+
     });
   }
 );
 
-/* =========================================================
-   SUNUCU
-========================================================= */
+
+/* =========================
+   SERVER
+========================= */
 
 app.listen(
   PORT,
   "0.0.0.0",
   () => {
+
     console.log(
       `VELORA API ${PORT} portunda çalışıyor.`
     );
 
     console.log(
-      "Yönetici girişi: POST /api/admin/login"
+      "Admin login: POST /api/admin/login"
+    );
+
+    console.log(
+      "User login: POST /api/auth/login"
+    );
+
+    console.log(
+      "Favorites: GET/POST/DELETE /api/favorites"
+    );
+
+    console.log(
+      "My orders: GET /api/orders/my"
     );
 
     console.log(
