@@ -32,6 +32,10 @@ app.use(
   })
 );
 
+// ======================================================
+// ENV
+// ======================================================
+
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const ADMIN_USERNAME =
@@ -70,20 +74,17 @@ function createToken(user) {
   );
 }
 
-
 function generateVerificationCode() {
   return crypto
     .randomInt(100000, 1000000)
     .toString();
 }
 
-
 function normalizeEmail(email) {
   return String(email || "")
     .trim()
     .toLowerCase();
 }
-
 
 function normalizeUsername(username) {
   return String(username || "")
@@ -1723,62 +1724,83 @@ const VALID_ORDER_STATUSES = [
   "cancelled",
 ];
 
+const ORDER_STATUS_LABELS = {
+  pending:
+    "Sipariş Alındı",
+
+  preparing:
+    "Hazırlanıyor",
+
+  shipped:
+    "Kargoya Verildi",
+
+  out_for_delivery:
+    "Dağıtımda",
+
+  delivered:
+    "Teslim Edildi",
+
+  cancelled:
+    "İptal Edildi",
+};
+
 
 // Eski kayıtlarla uyumluluk
+const LEGACY_ORDER_STATUS_MAP = {
+  Yeni:
+    "pending",
+
+  "Sipariş Alındı":
+    "pending",
+
+  pending:
+    "pending",
+
+  "Hazırlanıyor":
+    "preparing",
+
+  preparing:
+    "preparing",
+
+  Kargoda:
+    "shipped",
+
+  "Kargoya Verildi":
+    "shipped",
+
+  shipped:
+    "shipped",
+
+  Dağıtımda:
+    "out_for_delivery",
+
+  out_for_delivery:
+    "out_for_delivery",
+
+  "Teslim Edildi":
+    "delivered",
+
+  delivered:
+    "delivered",
+
+  İptal:
+    "cancelled",
+
+  "İptal Edildi":
+    "cancelled",
+
+  cancelled:
+    "cancelled",
+};
+
+
 function normalizeOrderStatus(status) {
   const value =
     String(status || "")
       .trim();
 
-  const statusMap = {
-    Yeni:
-      "pending",
-
-    "Sipariş Alındı":
-      "pending",
-
-    pending:
-      "pending",
-
-    "Hazırlanıyor":
-      "preparing",
-
-    preparing:
-      "preparing",
-
-    Kargoda:
-      "shipped",
-
-    "Kargoya Verildi":
-      "shipped",
-
-    shipped:
-      "shipped",
-
-    Dağıtımda:
-      "out_for_delivery",
-
-    out_for_delivery:
-      "out_for_delivery",
-
-    "Teslim Edildi":
-      "delivered",
-
-    delivered:
-      "delivered",
-
-    İptal:
-      "cancelled",
-
-    "İptal Edildi":
-      "cancelled",
-
-    cancelled:
-      "cancelled",
-  };
-
   return (
-    statusMap[value] ||
+    LEGACY_ORDER_STATUS_MAP[value] ||
     "pending"
   );
 }
@@ -1793,6 +1815,10 @@ app.get(
   authMiddleware,
   async (req, res) => {
     try {
+      // KRİTİK:
+      // Siparişler sadece JWT'deki kullanıcıya ait
+      // user_id üzerinden getiriliyor.
+
       const {
         data,
         error,
@@ -1822,6 +1848,8 @@ app.get(
           success: false,
           message:
             "Siparişler alınamadı.",
+          error:
+            error.message || null,
         });
       }
 
@@ -1862,10 +1890,24 @@ app.get(
 // ORDER CREATE
 // ======================================================
 //
-// ÖNEMLİ:
-// Artık userId frontend'den alınmıyor.
+// KRİTİK SİPARİŞ DÜZELTMESİ:
+//
+// Frontend'den userId kabul edilmiyor.
 // Sipariş doğrudan JWT içindeki req.user.id
-// ile giriş yapan hesaba bağlanıyor.
+// değerine bağlanıyor.
+//
+// Böylece:
+//
+// Kullanıcı A giriş yaptı
+//       ↓
+// POST /api/orders
+//       ↓
+// JWT doğrulanır
+//       ↓
+// req.user.id alınır
+//       ↓
+// orders.user_id = req.user.id
+//
 // ======================================================
 
 app.post(
@@ -1888,8 +1930,7 @@ app.post(
         !customerPhone ||
         !address ||
         !Array.isArray(items) ||
-        items.length === 0 ||
-        total === undefined
+        items.length === 0
       ) {
         return res.status(400).json({
           success: false,
@@ -1898,6 +1939,17 @@ app.post(
         });
       }
 
+      // Frontend'den gelen userId ASLA kullanılmıyor.
+      const userId =
+        req.user.id;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Kullanıcı kimliği bulunamadı. Lütfen tekrar giriş yapın.",
+        });
+      }
 
       // ==================================================
       // SİPARİŞİ SUPABASE'E KAYDET
@@ -1910,10 +1962,8 @@ app.post(
         await supabase
           .from("orders")
           .insert({
-            // KRİTİK:
-            // Frontend'den gelen userId kullanılmıyor.
             user_id:
-              req.user.id,
+              userId,
 
             customer_name:
               customerName,
@@ -1924,9 +1974,11 @@ app.post(
             customer_phone:
               customerPhone,
 
-            address,
+            address:
+              address,
 
-            items,
+            items:
+              items,
 
             total:
               Number(total) || 0,
@@ -1937,30 +1989,47 @@ app.post(
           .select()
           .single();
 
-
       if (error) {
         console.error(
-          "Order oluşturma hatası:",
+          "ORDER CREATE ERROR:",
           error
         );
 
         return res.status(500).json({
           success: false,
           message:
-            "Sipariş oluşturulamadı: " +
-            (
-              error.message ||
-              "Bilinmeyen hata"
-            ),
+            "Sipariş oluşturulamadı.",
+          error:
+            error.message ||
+            "Bilinmeyen Supabase hatası",
         });
       }
 
+      console.log(
+        "========================================"
+      );
 
       console.log(
-        "Yeni sipariş oluşturuldu:",
-        order.id,
-        "Kullanıcı:",
-        req.user.id
+        "YENİ SİPARİŞ"
+      );
+
+      console.log(
+        "Sipariş ID:",
+        order.id
+      );
+
+      console.log(
+        "Kullanıcı ID:",
+        userId
+      );
+
+      console.log(
+        "Durum:",
+        order.status
+      );
+
+      console.log(
+        "========================================"
       );
 
 
@@ -2083,7 +2152,7 @@ app.post(
 
               <p>
                 <strong>Toplam:</strong>
-                ${total} TL
+                ${Number(total) || 0} TL
               </p>
 
               <p>
@@ -2117,7 +2186,6 @@ app.post(
 
       let adminEmailSent =
         false;
-
 
       if (!adminEmail) {
 
@@ -2274,7 +2342,7 @@ app.post(
                 ">
 
                   <strong>
-                    Toplam: ${total} TL
+                    Toplam: ${Number(total) || 0} TL
                   </strong>
 
                 </div>
@@ -2324,7 +2392,7 @@ app.post(
     } catch (error) {
 
       console.error(
-        "Order genel hata:",
+        "ORDER CREATE EXCEPTION:",
         error
       );
 
@@ -2333,7 +2401,7 @@ app.post(
           false,
 
         message:
-          "Sipariş oluşturulamadı.",
+          "Sipariş oluşturulurken bir hata oluştu.",
 
         error:
           error.message ||
@@ -2711,6 +2779,8 @@ app.get(
           success: false,
           message:
             "Siparişler alınamadı.",
+          error:
+            error.message || null,
         });
       }
 
@@ -2725,7 +2795,6 @@ app.get(
               ),
           })
         );
-
 
       return res.json({
         success:
@@ -2766,8 +2835,7 @@ async function updateAdminOrderStatus(
 
     const {
       status,
-    } = req.body;
-
+    } = req.body || {};
 
     if (!status) {
       return res.status(400).json({
@@ -2779,12 +2847,10 @@ async function updateAdminOrderStatus(
       });
     }
 
-
     const normalizedStatus =
       normalizeOrderStatus(
         status
       );
-
 
     if (
       !VALID_ORDER_STATUSES.includes(
@@ -2799,7 +2865,6 @@ async function updateAdminOrderStatus(
           "Geçersiz sipariş durumu.",
       });
     }
-
 
     const {
       data,
@@ -2818,10 +2883,9 @@ async function updateAdminOrderStatus(
         .select()
         .single();
 
-
     if (error) {
       console.error(
-        "Order status hatası:",
+        "ORDER STATUS UPDATE ERROR:",
         error
       );
 
@@ -2831,9 +2895,19 @@ async function updateAdminOrderStatus(
 
         message:
           "Sipariş durumu güncellenemedi.",
+
+        error:
+          error.message ||
+          null,
       });
     }
 
+    console.log(
+      "Sipariş durumu güncellendi:",
+      id,
+      "=>",
+      normalizedStatus
+    );
 
     return res.json({
       success:
@@ -2843,13 +2917,25 @@ async function updateAdminOrderStatus(
         "Sipariş durumu güncellendi.",
 
       order:
-        data,
+        {
+          ...data,
+
+          status:
+            normalizeOrderStatus(
+              data.status
+            ),
+
+          statusLabel:
+            ORDER_STATUS_LABELS[
+              normalizedStatus
+            ],
+        },
     });
 
   } catch (error) {
 
     console.error(
-      "Order status genel hata:",
+      "ORDER STATUS EXCEPTION:",
       error
     );
 
