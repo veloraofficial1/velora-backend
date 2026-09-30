@@ -247,7 +247,6 @@ app.post("/api/auth/register", async (req, res) => {
       });
     }
 
-    // Kullanıcı adı kontrolü
     const { data: usernameUser, error: usernameError } =
       await supabase
         .from("users")
@@ -276,7 +275,6 @@ app.post("/api/auth/register", async (req, res) => {
       });
     }
 
-    // Email kontrolü
     const { data: emailUser, error: emailError } =
       await supabase
         .from("users")
@@ -316,9 +314,6 @@ app.post("/api/auth/register", async (req, res) => {
         Date.now() + 15 * 60 * 1000
       ).toISOString();
 
-    // ÖNEMLİ:
-    // Burada telefon yok.
-    // Burada role yok.
     const { data: user, error: insertError } =
       await supabase
         .from("users")
@@ -357,7 +352,6 @@ app.post("/api/auth/register", async (req, res) => {
       });
     }
 
-    // Doğrulama maili
     const emailSent = await sendEmail({
       to: cleanEmail,
       subject: "VELORA - E-posta Doğrulama",
@@ -1499,7 +1493,7 @@ app.get(
 
 // =========================
 // ORDER CREATE
-// TELEFON BURADA KALIYOR
+// MÜŞTERİ + YÖNETİCİ MAİLİ
 // =========================
 
 app.post(
@@ -1515,6 +1509,10 @@ app.post(
         items,
         total,
       } = req.body;
+
+      // =========================
+      // SİPARİŞ BİLGİLERİ KONTROLÜ
+      // =========================
 
       if (
         !customerName ||
@@ -1532,6 +1530,10 @@ app.post(
             "Sipariş bilgileri eksik.",
         });
       }
+
+      // =========================
+      // SİPARİŞİ SUPABASE'E KAYDET
+      // =========================
 
       const {
         data: order,
@@ -1569,63 +1571,340 @@ app.post(
         });
       }
 
-      // Sipariş maili
-      await sendEmail({
-        to: customerEmail,
-        subject:
-          "VELORA - Siparişiniz Alındı",
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:700px;margin:auto;padding:30px;">
-            <h1 style="color:#9b7445;">VELORA</h1>
+      console.log(
+        "Yeni sipariş oluşturuldu:",
+        order.id
+      );
 
-            <h2>Siparişiniz Alındı</h2>
+      // =========================
+      // ÜRÜNLERİ HTML'E ÇEVİR
+      // =========================
 
-            <p>
-              Merhaba ${customerName},
-            </p>
+      const itemsHtml = items
+        .map((item) => {
+          const productName =
+            item.name ||
+            item.productName ||
+            `Ürün #${item.productId || ""}`;
 
-            <p>
-              Siparişiniz başarıyla oluşturuldu.
-            </p>
+          const quantity =
+            item.quantity || 1;
 
-            <hr>
+          const price =
+            item.price !== undefined &&
+            item.price !== null
+              ? `${item.price} TL`
+              : "Fiyat belirtilmemiş";
 
-            <p>
-              <strong>Sipariş ID:</strong>
-              ${order.id}
-            </p>
+          return `
+            <tr>
+              <td style="
+                padding:12px;
+                border-bottom:1px solid #ddd;
+              ">
+                ${productName}
+              </td>
 
-            <p>
-              <strong>Telefon:</strong>
-              ${customerPhone}
-            </p>
+              <td style="
+                padding:12px;
+                border-bottom:1px solid #ddd;
+                text-align:center;
+              ">
+                ${quantity}
+              </td>
 
-            <p>
-              <strong>Adres:</strong>
-              ${address}
-            </p>
+              <td style="
+                padding:12px;
+                border-bottom:1px solid #ddd;
+                text-align:right;
+              ">
+                ${price}
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
 
-            <p>
-              <strong>Toplam:</strong>
-              ${total} TL
-            </p>
+      // =========================
+      // MÜŞTERİYE MAİL
+      // =========================
 
-            <hr>
+      const customerEmailSent =
+        await sendEmail({
+          to: customerEmail,
 
-            <p>
-              VELORA
-            </p>
-          </div>
-        `,
-      });
+          subject:
+            "VELORA - Siparişiniz Alındı",
+
+          html: `
+            <div style="
+              font-family:Arial,sans-serif;
+              max-width:700px;
+              margin:auto;
+              padding:30px;
+              color:#4c3b2b;
+            ">
+
+              <h1 style="
+                color:#9b7445;
+              ">
+                VELORA
+              </h1>
+
+              <h2>
+                Siparişiniz Alındı
+              </h2>
+
+              <p>
+                Merhaba ${customerName},
+              </p>
+
+              <p>
+                Siparişiniz başarıyla oluşturuldu.
+              </p>
+
+              <hr>
+
+              <p>
+                <strong>Sipariş ID:</strong>
+                ${order.id}
+              </p>
+
+              <p>
+                <strong>Telefon:</strong>
+                ${customerPhone}
+              </p>
+
+              <p>
+                <strong>Adres:</strong><br>
+                ${address}
+              </p>
+
+              <p>
+                <strong>Toplam:</strong>
+                ${total} TL
+              </p>
+
+              <hr>
+
+              <p>
+                VELORA
+              </p>
+
+            </div>
+          `,
+        });
+
+      console.log(
+        "Müşteri maili gönderildi:",
+        customerEmailSent
+      );
+
+      // =========================
+      // YÖNETİCİ MAİLİ
+      // =========================
+
+      const adminEmail =
+        process.env.ADMIN_EMAIL;
+
+      let adminEmailSent = false;
+
+      if (!adminEmail) {
+
+        console.error(
+          "ADMIN_EMAIL environment variable bulunamadı!"
+        );
+
+      } else {
+
+        adminEmailSent =
+          await sendEmail({
+
+            to: adminEmail,
+
+            subject:
+              `VELORA - Yeni Sipariş #${order.id}`,
+
+            html: `
+              <div style="
+                font-family:Arial,sans-serif;
+                max-width:750px;
+                margin:auto;
+                padding:30px;
+                color:#4c3b2b;
+              ">
+
+                <h1 style="
+                  color:#9b7445;
+                  margin-bottom:5px;
+                ">
+                  VELORA
+                </h1>
+
+                <h2>
+                  Yeni Sipariş Alındı
+                </h2>
+
+                <p style="
+                  background:#f7f1e7;
+                  padding:15px;
+                  border-left:4px solid #9b7445;
+                ">
+                  Yeni bir müşteri siparişi oluşturuldu.
+                </p>
+
+                <hr>
+
+                <h3>
+                  Sipariş Bilgileri
+                </h3>
+
+                <p>
+                  <strong>Sipariş ID:</strong>
+                  ${order.id}
+                </p>
+
+                <p>
+                  <strong>Durum:</strong>
+                  Bekliyor
+                </p>
+
+                <p>
+                  <strong>Tarih:</strong>
+                  ${new Date().toLocaleString(
+                    "tr-TR"
+                  )}
+                </p>
+
+                <hr>
+
+                <h3>
+                  Müşteri Bilgileri
+                </h3>
+
+                <p>
+                  <strong>Ad Soyad:</strong>
+                  ${customerName}
+                </p>
+
+                <p>
+                  <strong>E-posta:</strong>
+                  ${customerEmail}
+                </p>
+
+                <p>
+                  <strong>Telefon:</strong>
+                  ${customerPhone}
+                </p>
+
+                <p>
+                  <strong>Adres:</strong><br>
+                  ${address}
+                </p>
+
+                <hr>
+
+                <h3>
+                  Sipariş Detayları
+                </h3>
+
+                <table style="
+                  width:100%;
+                  border-collapse:collapse;
+                ">
+
+                  <thead>
+                    <tr>
+
+                      <th style="
+                        padding:12px;
+                        background:#f7f1e7;
+                        text-align:left;
+                      ">
+                        Ürün
+                      </th>
+
+                      <th style="
+                        padding:12px;
+                        background:#f7f1e7;
+                        text-align:center;
+                      ">
+                        Adet
+                      </th>
+
+                      <th style="
+                        padding:12px;
+                        background:#f7f1e7;
+                        text-align:right;
+                      ">
+                        Fiyat
+                      </th>
+
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    ${itemsHtml}
+                  </tbody>
+
+                </table>
+
+                <div style="
+                  margin-top:25px;
+                  padding:18px;
+                  background:#f7f1e7;
+                  text-align:right;
+                  font-size:20px;
+                ">
+
+                  <strong>
+                    Toplam: ${total} TL
+                  </strong>
+
+                </div>
+
+                <hr>
+
+                <p style="
+                  font-size:13px;
+                  color:#777;
+                ">
+                  Bu mail VELORA yönetici sipariş
+                  bildirim sisteminden otomatik olarak
+                  gönderilmiştir.
+                </p>
+
+              </div>
+            `,
+          });
+
+        console.log(
+          "Yönetici maili gönderildi:",
+          adminEmailSent
+        );
+      }
+
+      // =========================
+      // BAŞARILI CEVAP
+      // =========================
 
       return res.status(201).json({
         success: true,
+
         message:
           "Siparişiniz başarıyla oluşturuldu.",
+
         order,
+
+        customerEmailSent:
+          customerEmailSent,
+
+        adminEmailSent:
+          adminEmailSent,
       });
+
     } catch (error) {
+
       console.error(
         "Order genel hata:",
         error
@@ -1633,8 +1912,13 @@ app.post(
 
       return res.status(500).json({
         success: false,
+
         message:
           "Sipariş oluşturulamadı.",
+
+        error:
+          error.message ||
+          "Bilinmeyen hata",
       });
     }
   }
