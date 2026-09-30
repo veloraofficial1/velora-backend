@@ -1,4 +1,3 @@
-```js
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -44,11 +43,32 @@ const ADMIN_USERNAME =
 const ADMIN_PASSWORD =
   process.env.ADMIN_PASSWORD;
 
+const ADMIN_EMAIL =
+  process.env.ADMIN_EMAIL;
+
 const SUPABASE_URL =
   process.env.SUPABASE_URL;
 
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!JWT_SECRET) {
+  console.error(
+    "UYARI: JWT_SECRET environment variable bulunamadı."
+  );
+}
+
+if (!SUPABASE_URL) {
+  console.error(
+    "UYARI: SUPABASE_URL environment variable bulunamadı."
+  );
+}
+
+if (!SUPABASE_SERVICE_ROLE_KEY) {
+  console.error(
+    "UYARI: SUPABASE_SERVICE_ROLE_KEY environment variable bulunamadı."
+  );
+}
 
 const supabase = createClient(
   SUPABASE_URL,
@@ -74,17 +94,20 @@ function createToken(user) {
   );
 }
 
+
 function generateVerificationCode() {
   return crypto
     .randomInt(100000, 1000000)
     .toString();
 }
 
+
 function normalizeEmail(email) {
   return String(email || "")
     .trim()
     .toLowerCase();
 }
+
 
 function normalizeUsername(username) {
   return String(username || "")
@@ -125,6 +148,11 @@ function authMiddleware(req, res, next) {
     next();
 
   } catch (error) {
+    console.error(
+      "Auth middleware hatası:",
+      error.message
+    );
+
     return res.status(401).json({
       success: false,
       message:
@@ -193,7 +221,8 @@ async function sendEmail({
 
             to: [
               {
-                email: to,
+                email:
+                  normalizeEmail(to),
               },
             ],
 
@@ -234,13 +263,16 @@ async function sendEmail({
 // ANA SAYFA
 // ======================================================
 
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message:
-      "VELORA backend çalışıyor.",
-  });
-});
+app.get(
+  "/",
+  (req, res) => {
+    res.json({
+      success: true,
+      message:
+        "VELORA backend çalışıyor.",
+    });
+  }
+);
 
 
 // ======================================================
@@ -453,15 +485,12 @@ app.post(
               insertError.message ||
               "Bilinmeyen Supabase hatası"
             ),
-
           code:
             insertError.code ||
             null,
-
           details:
             insertError.details ||
             null,
-
           hint:
             insertError.hint ||
             null,
@@ -1452,7 +1481,7 @@ app.post(
       return res.status(500).json({
         success: false,
         message:
-          "Şifre değiştirilemedi.",
+          "Şifreniz değiştirilemedi.",
       });
     }
   }
@@ -1745,7 +1774,6 @@ const ORDER_STATUS_LABELS = {
 };
 
 
-// Eski kayıtlarla uyumluluk
 const LEGACY_ORDER_STATUS_MAP = {
   Yeni:
     "pending",
@@ -1809,39 +1837,58 @@ function normalizeOrderStatus(status) {
 // ======================================================
 // ORDERS - USER
 // ======================================================
+//
+// ÖNEMLİ DÜZELTME:
+//
+// Yeni siparişler user_id ile eşleşir.
+//
+// Eski siparişlerde user_id farklı/boş kaldıysa
+// customer_email üzerinden de aranır.
+//
+// Aynı sipariş iki kez gösterilmez.
+// ======================================================
 
 app.get(
   "/api/orders/my",
   authMiddleware,
   async (req, res) => {
     try {
-      // KRİTİK:
-      // Siparişler sadece JWT'deki kullanıcıya ait
-      // user_id üzerinden getiriliyor.
+      const userId =
+        req.user?.id;
+
+      const userEmail =
+        normalizeEmail(
+          req.user?.email
+        );
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message:
+            "Kullanıcı kimliği bulunamadı. Lütfen tekrar giriş yapın.",
+        });
+      }
+
+      // ==================================================
+      // USER ID İLE SİPARİŞLER
+      // ==================================================
 
       const {
-        data,
-        error,
+        data: userIdOrders,
+        error: userIdError,
       } =
         await supabase
           .from("orders")
           .select("*")
           .eq(
             "user_id",
-            req.user.id
-          )
-          .order(
-            "created_at",
-            {
-              ascending:
-                false,
-            }
+            userId
           );
 
-      if (error) {
+      if (userIdError) {
         console.error(
-          "Orders GET hatası:",
-          error
+          "Orders user_id GET hatası:",
+          userIdError
         );
 
         return res.status(500).json({
@@ -1849,24 +1896,183 @@ app.get(
           message:
             "Siparişler alınamadı.",
           error:
-            error.message || null,
+            userIdError.message ||
+            null,
         });
       }
 
-      const orders =
-        (data || []).map(
-          (order) => ({
-            ...order,
+      // ==================================================
+      // EMAIL İLE ESKİ SİPARİŞLER
+      // ==================================================
 
-            status:
+      let emailOrders = [];
+
+      if (userEmail) {
+        const {
+          data,
+          error,
+        } =
+          await supabase
+            .from("orders")
+            .select("*")
+            .eq(
+              "customer_email",
+              userEmail
+            );
+
+        if (error) {
+          console.warn(
+            "Orders email GET uyarısı:",
+            error
+          );
+        } else {
+          emailOrders =
+            data || [];
+        }
+      }
+
+      // ==================================================
+      // LİSTELERİ BİRLEŞTİR
+      // ==================================================
+
+      const combinedOrders = [
+        ...(userIdOrders || []),
+        ...emailOrders,
+      ];
+
+      // ==================================================
+      // DUPLICATE TEMİZLE
+      // ==================================================
+
+      const uniqueOrders = [];
+
+      const seenOrderIds =
+        new Set();
+
+      for (
+        const order
+        of combinedOrders
+      ) {
+        const orderId =
+          String(
+            order.id ?? ""
+          );
+
+        if (
+          orderId &&
+          seenOrderIds.has(
+            orderId
+          )
+        ) {
+          continue;
+        }
+
+        if (orderId) {
+          seenOrderIds.add(
+            orderId
+          );
+        }
+
+        uniqueOrders.push(
+          order
+        );
+      }
+
+      // ==================================================
+      // TARİHE GÖRE SIRALA
+      // ==================================================
+
+      uniqueOrders.sort(
+        (a, b) => {
+          const dateA =
+            a.created_at
+              ? new Date(
+                  a.created_at
+                ).getTime()
+              : 0;
+
+          const dateB =
+            b.created_at
+              ? new Date(
+                  b.created_at
+                ).getTime()
+              : 0;
+
+          return (
+            dateB - dateA
+          );
+        }
+      );
+
+      // ==================================================
+      // STATUS
+      // ==================================================
+
+      const orders =
+        uniqueOrders.map(
+          (order) => {
+            const status =
               normalizeOrderStatus(
                 order.status
-              ),
-          })
+              );
+
+            return {
+              ...order,
+
+              status,
+
+              statusLabel:
+                ORDER_STATUS_LABELS[
+                  status
+                ] ||
+                "Sipariş Alındı",
+            };
+          }
         );
 
+      console.log(
+        "========================================"
+      );
+
+      console.log(
+        "KULLANICI SİPARİŞLERİ"
+      );
+
+      console.log(
+        "Kullanıcı ID:",
+        userId
+      );
+
+      console.log(
+        "Kullanıcı Email:",
+        userEmail
+      );
+
+      console.log(
+        "User ID siparişleri:",
+        userIdOrders?.length ||
+          0
+      );
+
+      console.log(
+        "Email siparişleri:",
+        emailOrders?.length ||
+          0
+      );
+
+      console.log(
+        "Toplam benzersiz sipariş:",
+        orders.length
+      );
+
+      console.log(
+        "========================================"
+      );
+
       return res.json({
-        success: true,
+        success:
+          true,
+
         orders,
       });
 
@@ -1877,9 +2083,15 @@ app.get(
       );
 
       return res.status(500).json({
-        success: false,
+        success:
+          false,
+
         message:
           "Siparişler alınamadı.",
+
+        error:
+          error.message ||
+          "Bilinmeyen hata",
       });
     }
   }
@@ -1888,26 +2100,6 @@ app.get(
 
 // ======================================================
 // ORDER CREATE
-// ======================================================
-//
-// KRİTİK SİPARİŞ DÜZELTMESİ:
-//
-// Frontend'den userId kabul edilmiyor.
-// Sipariş doğrudan JWT içindeki req.user.id
-// değerine bağlanıyor.
-//
-// Böylece:
-//
-// Kullanıcı A giriş yaptı
-//       ↓
-// POST /api/orders
-//       ↓
-// JWT doğrulanır
-//       ↓
-// req.user.id alınır
-//       ↓
-// orders.user_id = req.user.id
-//
 // ======================================================
 
 app.post(
@@ -1933,23 +2125,41 @@ app.post(
         items.length === 0
       ) {
         return res.status(400).json({
-          success: false,
+          success:
+            false,
+
           message:
             "Sipariş bilgileri eksik.",
         });
       }
 
-      // Frontend'den gelen userId ASLA kullanılmıyor.
+      // ==================================================
+      // USER ID JWT'DEN ALINIYOR
+      // ==================================================
+
       const userId =
-        req.user.id;
+        req.user?.id;
+
+      const userEmail =
+        normalizeEmail(
+          req.user?.email
+        );
 
       if (!userId) {
         return res.status(401).json({
-          success: false,
+          success:
+            false,
+
           message:
             "Kullanıcı kimliği bulunamadı. Lütfen tekrar giriş yapın.",
         });
       }
+
+      const cleanCustomerEmail =
+        normalizeEmail(
+          customerEmail ||
+          userEmail
+        );
 
       // ==================================================
       // SİPARİŞİ SUPABASE'E KAYDET
@@ -1966,16 +2176,22 @@ app.post(
               userId,
 
             customer_name:
-              customerName,
+              String(
+                customerName
+              ).trim(),
 
             customer_email:
-              customerEmail,
+              cleanCustomerEmail,
 
             customer_phone:
-              customerPhone,
+              String(
+                customerPhone
+              ).trim(),
 
             address:
-              address,
+              String(
+                address
+              ).trim(),
 
             items:
               items,
@@ -1996,9 +2212,12 @@ app.post(
         );
 
         return res.status(500).json({
-          success: false,
+          success:
+            false,
+
           message:
             "Sipariş oluşturulamadı.",
+
           error:
             error.message ||
             "Bilinmeyen Supabase hatası",
@@ -2021,6 +2240,11 @@ app.post(
       console.log(
         "Kullanıcı ID:",
         userId
+      );
+
+      console.log(
+        "Kullanıcı Email:",
+        cleanCustomerEmail
       );
 
       console.log(
@@ -2095,13 +2319,13 @@ app.post(
 
 
       // ==================================================
-      // MÜŞTERİYE MAİL
+      // MÜŞTERİYE MAIL
       // ==================================================
 
       const customerEmailSent =
         await sendEmail({
           to:
-            customerEmail,
+            cleanCustomerEmail,
 
           subject:
             "VELORA - Siparişiniz Alındı",
@@ -2178,28 +2402,21 @@ app.post(
 
 
       // ==================================================
-      // YÖNETİCİ MAİLİ
+      // YÖNETİCİ MAILİ
       // ==================================================
-
-      const adminEmail =
-        process.env.ADMIN_EMAIL;
 
       let adminEmailSent =
         false;
 
-      if (!adminEmail) {
-
+      if (!ADMIN_EMAIL) {
         console.error(
           "ADMIN_EMAIL environment variable bulunamadı!"
         );
-
       } else {
-
         adminEmailSent =
           await sendEmail({
-
             to:
-              adminEmail,
+              ADMIN_EMAIL,
 
             subject:
               `VELORA - Yeni Sipariş #${order.id}`,
@@ -2269,7 +2486,7 @@ app.post(
 
                 <p>
                   <strong>E-posta:</strong>
-                  ${customerEmail}
+                  ${cleanCustomerEmail}
                 </p>
 
                 <p>
@@ -2390,7 +2607,6 @@ app.post(
       });
 
     } catch (error) {
-
       console.error(
         "ORDER CREATE EXCEPTION:",
         error
@@ -2529,13 +2745,11 @@ function adminMiddleware(
     next();
 
   } catch (error) {
-
     return res.status(401).json({
       success: false,
       message:
         "Geçersiz admin oturumu.",
     });
-
   }
 }
 
@@ -2786,14 +3000,24 @@ app.get(
 
       const orders =
         (data || []).map(
-          (order) => ({
-            ...order,
-
-            status:
+          (order) => {
+            const status =
               normalizeOrderStatus(
                 order.status
-              ),
-          })
+              );
+
+            return {
+              ...order,
+
+              status,
+
+              statusLabel:
+                ORDER_STATUS_LABELS[
+                  status
+                ] ||
+                "Sipariş Alındı",
+            };
+          }
         );
 
       return res.json({
@@ -2821,7 +3045,6 @@ app.get(
 
 // ======================================================
 // ADMIN ORDER STATUS UPDATE
-// PUT + PATCH
 // ======================================================
 
 async function updateAdminOrderStatus(
@@ -2916,24 +3139,22 @@ async function updateAdminOrderStatus(
       message:
         "Sipariş durumu güncellendi.",
 
-      order:
-        {
-          ...data,
+      order: {
+        ...data,
 
-          status:
-            normalizeOrderStatus(
-              data.status
-            ),
+        status:
+          normalizeOrderStatus(
+            data.status
+          ),
 
-          statusLabel:
-            ORDER_STATUS_LABELS[
-              normalizedStatus
-            ],
-        },
+        statusLabel:
+          ORDER_STATUS_LABELS[
+            normalizedStatus
+          ],
+      },
     });
 
   } catch (error) {
-
     console.error(
       "ORDER STATUS EXCEPTION:",
       error
@@ -2950,7 +3171,10 @@ async function updateAdminOrderStatus(
 }
 
 
-// PUT
+// ======================================================
+// PUT STATUS
+// ======================================================
+
 app.put(
   "/api/admin/orders/:id/status",
   adminMiddleware,
@@ -2958,7 +3182,10 @@ app.put(
 );
 
 
-// PATCH
+// ======================================================
+// PATCH STATUS
+// ======================================================
+
 app.patch(
   "/api/admin/orders/:id/status",
   adminMiddleware,
@@ -3014,7 +3241,6 @@ app.delete(
       });
 
     } catch (error) {
-
       console.error(
         "Admin order delete genel hata:",
         error
@@ -3066,4 +3292,3 @@ app.listen(
     );
   }
 );
-```
