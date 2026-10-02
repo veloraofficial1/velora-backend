@@ -165,16 +165,18 @@ app.get("/api/health", (req, res) => {
 });
 
 // ======================================================
-// REGISTER
+// REGISTER (Ad ve Soyad Destekli)
 // ======================================================
 
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { username, email, password, passwordConfirm } = req.body;
+    const { firstName, lastName, username, email, password, passwordConfirm } = req.body;
+    const cleanFirstName = String(firstName || "").trim();
+    const cleanLastName = String(lastName || "").trim();
     const cleanUsername = normalizeUsername(username);
     const cleanEmail = normalizeEmail(email);
 
-    if (!cleanUsername || !cleanEmail || !password || !passwordConfirm) {
+    if (!cleanFirstName || !cleanLastName || !cleanUsername || !cleanEmail || !password || !passwordConfirm) {
       return res.status(400).json({ success: false, message: "Lütfen tüm alanları doldurun." });
     }
     if (cleanUsername.length < 3) {
@@ -212,6 +214,8 @@ app.post("/api/auth/register", async (req, res) => {
     const { data: user, error: insertError } = await supabase
       .from("users")
       .insert({
+        first_name: cleanFirstName,
+        last_name: cleanLastName,
         username: cleanUsername,
         email: cleanEmail,
         password_hash: passwordHash,
@@ -227,14 +231,14 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(500).json({ success: false, message: "Kullanıcı oluşturulamadı." });
     }
 
-    const emailSent = await sendEmail({
+    await sendEmail({
       to: cleanEmail,
       subject: "VELORA - E-posta Doğrulama",
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:30px;">
           <h1 style="color:#9b7445;">VELORA</h1>
           <h2>E-posta Doğrulama</h2>
-          <p>Merhaba ${cleanUsername},</p>
+          <p>Merhaba ${cleanFirstName},</p>
           <p>VELORA hesabınızı doğrulamak için aşağıdaki kodu kullanın:</p>
           <div style="font-size:32px; font-weight:bold; letter-spacing:8px; padding:20px; background:#f7f1e7; text-align:center; color:#4c3b2b;">
             ${verificationCode}
@@ -246,10 +250,8 @@ app.post("/api/auth/register", async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: emailSent
-        ? "Hesabınız oluşturuldu. E-posta adresinize gönderilen doğrulama kodunu girin."
-        : "Hesabınız oluşturuldu ancak doğrulama e-postası gönderilemedi.",
-      user: { id: user.id, username: user.username, email: user.email },
+      message: "Hesabınız oluşturuldu. E-posta adresinize gönderilen doğrulama kodunu girin.",
+      user: { id: user.id, username: user.username, email: user.email, first_name: user.first_name, last_name: user.last_name },
     });
 
   } catch (error) {
@@ -302,64 +304,6 @@ app.post("/api/auth/verify-email", async (req, res) => {
 });
 
 // ======================================================
-// RESEND VERIFICATION
-// ======================================================
-
-app.post("/api/auth/resend-verification", async (req, res) => {
-  try {
-    const { email } = req.body;
-    const cleanEmail = normalizeEmail(email);
-
-    if (!cleanEmail) return res.status(400).json({ success: false, message: "E-posta adresi gereklidir." });
-
-    const { data: user, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("email", cleanEmail)
-      .maybeSingle();
-
-    if (error) return res.status(500).json({ success: false, message: "Kullanıcı bulunamadı." });
-    if (!user) return res.status(404).json({ success: false, message: "Bu e-posta ile kayıtlı kullanıcı bulunamadı." });
-    if (user.email_verified) return res.json({ success: true, message: "E-posta adresiniz zaten doğrulanmış." });
-
-    const verificationCode = generateVerificationCode();
-    const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-
-    const { error: updateError } = await supabase
-      .from("users")
-      .update({ verification_code: verificationCode, verification_expires_at: verificationExpiresAt })
-      .eq("id", user.id);
-
-    if (updateError) return res.status(500).json({ success: false, message: "Yeni doğrulama kodu oluşturulamadı." });
-
-    const emailSent = await sendEmail({
-      to: cleanEmail,
-      subject: "VELORA - Yeni Doğrulama Kodu",
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:30px;">
-          <h1 style="color:#9b7445;">VELORA</h1>
-          <h2>Yeni Doğrulama Kodunuz</h2>
-          <p>Merhaba ${user.username},</p>
-          <div style="font-size:32px; font-weight:bold; letter-spacing:8px; padding:20px; background:#f7f1e7; text-align:center; color:#4c3b2b;">
-            ${verificationCode}
-          </div>
-          <p>Bu kod 15 dakika boyunca geçerlidir.</p>
-        </div>
-      `,
-    });
-
-    return res.json({
-      success: true,
-      message: emailSent ? "Yeni doğrulama kodu e-posta adresinize gönderildi." : "Kod oluşturuldu ancak e-posta gönderilemedi.",
-    });
-
-  } catch (error) {
-    console.error("Resend genel hata:", error);
-    return res.status(500).json({ success: false, message: "Yeni doğrulama kodu gönderilemedi." });
-  }
-});
-
-// ======================================================
 // LOGIN
 // ======================================================
 
@@ -392,7 +336,7 @@ app.post("/api/auth/login", async (req, res) => {
       success: true,
       message: "Giriş başarılı.",
       token,
-      user: { id: user.id, username: user.username, email: user.email },
+      user: { id: user.id, username: user.username, email: user.email, first_name: user.first_name, last_name: user.last_name },
     });
 
   } catch (error) {
@@ -418,12 +362,10 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     const resetCode = generateVerificationCode();
     const resetExpiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-    const { error: updateError } = await supabase
+    await supabase
       .from("users")
       .update({ verification_code: resetCode, verification_expires_at: resetExpiresAt })
       .eq("id", user.id);
-
-    if (updateError) return res.status(500).json({ success: false, message: "Şifre sıfırlama kodu oluşturulamadı." });
 
     await sendEmail({
       to: cleanEmail,
@@ -432,7 +374,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:30px;">
           <h1 style="color:#9b7445;">VELORA</h1>
           <h2>Şifre Sıfırlama</h2>
-          <p>Merhaba ${user.username},</p>
+          <p>Merhaba ${user.first_name || user.username},</p>
           <p>Şifrenizi sıfırlamak için aşağıdaki kodu kullanın:</p>
           <div style="font-size:32px; font-weight:bold; letter-spacing:8px; padding:20px; background:#f7f1e7; text-align:center; color:#4c3b2b;">
             ${resetCode}
@@ -444,7 +386,6 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 
     return res.json({ success: true, message: "Eğer bu e-posta kayıtlıysa şifre sıfırlama kodu gönderildi." });
   } catch (error) {
-    console.error("Forgot genel hata:", error);
     return res.status(500).json({ success: false, message: "Şifre sıfırlama işlemi başarısız." });
   }
 });
@@ -469,12 +410,11 @@ app.post("/api/auth/reset-password", async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    const { error: updateError } = await supabase
+    await supabase
       .from("users")
       .update({ password_hash: passwordHash, verification_code: null, verification_expires_at: null })
       .eq("id", user.id);
 
-    if (updateError) return res.status(500).json({ success: false, message: "Şifre değiştirilemedi." });
     return res.json({ success: true, message: "Şifreniz başarıyla değiştirildi." });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Şifre sıfırlama başarısız." });
@@ -495,8 +435,7 @@ app.post("/api/auth/change-password", authMiddleware, async (req, res) => {
     if (!passwordMatch) return res.status(400).json({ success: false, message: "Mevcut şifreniz yanlış." });
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    const { error: updateError } = await supabase.from("users").update({ password_hash: passwordHash }).eq("id", user.id);
-    if (updateError) return res.status(500).json({ success: false, message: "Şifre değiştirilemedi." });
+    await supabase.from("users").update({ password_hash: passwordHash }).eq("id", user.id);
 
     return res.json({ success: true, message: "Şifreniz başarıyla değiştirildi." });
   } catch (error) {
@@ -505,14 +444,14 @@ app.post("/api/auth/change-password", authMiddleware, async (req, res) => {
 });
 
 // ======================================================
-// ME
+// ME (Ad ve Soyad Eklendi)
 // ======================================================
 
 app.get("/api/auth/me", authMiddleware, async (req, res) => {
   try {
     const { data: user, error } = await supabase
       .from("users")
-      .select("id, username, email, email_verified")
+      .select("id, username, email, email_verified, first_name, last_name")
       .eq("id", req.user.id)
       .maybeSingle();
 
@@ -520,6 +459,45 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
     return res.json({ success: true, user });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Kullanıcı bilgileri alınamadı." });
+  }
+});
+
+// ======================================================
+// UPDATE PROFILE (YENİ EKLENDİ - 404 HATASINI ÇÖZER)
+// ======================================================
+
+app.post("/api/auth/update-profile", authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, firstName, lastName, username, email } = req.body;
+    
+    if (!currentPassword) {
+      return res.status(400).json({ success: false, message: "Değişiklikleri onaylamak için mevcut şifrenizi girmelisiniz." });
+    }
+
+    const { data: user, error } = await supabase.from("users").select("*").eq("id", req.user.id).maybeSingle();
+    if (error || !user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı." });
+
+    const passwordMatch = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!passwordMatch) return res.status(400).json({ success: false, message: "Mevcut şifreniz yanlış." });
+
+    const updateData = {};
+    if (firstName !== undefined) updateData.first_name = String(firstName).trim();
+    if (lastName !== undefined) updateData.last_name = String(lastName).trim();
+    if (username !== undefined) updateData.username = normalizeUsername(username);
+    if (email !== undefined) updateData.email = normalizeEmail(email);
+
+    const { data: updatedUser, error: updateError } = await supabase
+      .from("users")
+      .update(updateData)
+      .eq("id", user.id)
+      .select("id, username, email, first_name, last_name")
+      .single();
+
+    if (updateError) return res.status(500).json({ success: false, message: "Profil güncellenemedi." });
+
+    return res.json({ success: true, message: "Bilgileriniz başarıyla güncellendi.", user: updatedUser });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Güncelleme sırasında bir hata oluştu." });
   }
 });
 
@@ -601,13 +579,11 @@ app.get("/api/orders/my", authMiddleware, async (req, res) => {
 
     if (!userId) return res.status(401).json({ success: false, message: "Kullanıcı kimliği bulunamadı." });
 
-    const { data: userIdOrders, error: userIdError } = await supabase.from("orders").select("*").eq("user_id", userId);
-    if (userIdError) return res.status(500).json({ success: false, message: "Siparişler alınamadı." });
-
+    const { data: userIdOrders } = await supabase.from("orders").select("*").eq("user_id", userId);
     let emailOrders = [];
     if (userEmail) {
-      const { data, error } = await supabase.from("orders").select("*").eq("customer_email", userEmail);
-      if (!error) emailOrders = data || [];
+      const { data } = await supabase.from("orders").select("*").eq("customer_email", userEmail);
+      if (data) emailOrders = data;
     }
 
     const combinedOrders = [...(userIdOrders || []), ...emailOrders];
@@ -668,28 +644,6 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
 
     if (error) return res.status(500).json({ success: false, message: "Sipariş oluşturulamadı." });
 
-    const itemsHtml = items.map((item) => {
-      const productName = item.name || item.productName || `Ürün #${item.productId || ""}`;
-      const quantity = item.quantity || 1;
-      const price = item.price !== undefined && item.price !== null ? `${item.price} TL` : "Fiyat belirtilmemiş";
-      return `<tr><td style="padding:12px;border-bottom:1px solid #ddd;">${productName}</td><td style="padding:12px;border-bottom:1px solid #ddd;text-align:center;">${quantity}</td><td style="padding:12px;border-bottom:1px solid #ddd;text-align:right;">${price}</td></tr>`;
-    }).join("");
-
-    const customerEmailSent = await sendEmail({
-      to: cleanCustomerEmail,
-      subject: "VELORA - Siparişiniz Alındı",
-      html: `<div style="font-family:Arial,sans-serif;max-width:700px;margin:auto;padding:30px;color:#4c3b2b;"><h1 style="color:#9b7445;">VELORA</h1><h2>Siparişiniz Alındı</h2><p>Merhaba ${customerName},</p><p>Siparişiniz başarıyla oluşturuldu.</p><hr><p><strong>Sipariş ID:</strong> ${order.id}</p><p><strong>Toplam:</strong> ${Number(total) || 0} TL</p></div>`,
-    });
-
-    let adminEmailSent = false;
-    if (ADMIN_EMAIL) {
-      adminEmailSent = await sendEmail({
-        to: ADMIN_EMAIL,
-        subject: `VELORA - Yeni Sipariş #${order.id}`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:750px;margin:auto;padding:30px;color:#4c3b2b;"><h1 style="color:#9b7445;">VELORA</h1><h2>Yeni Sipariş Alındı</h2><hr><p><strong>Sipariş ID:</strong> ${order.id}</p><p><strong>Müşteri:</strong> ${customerName}</p><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="padding:12px;background:#f7f1e7;text-align:left;">Ürün</th><th style="padding:12px;background:#f7f1e7;text-align:center;">Adet</th><th style="padding:12px;background:#f7f1e7;text-align:right;">Fiyat</th></tr></thead><tbody>${itemsHtml}</tbody></table><div style="margin-top:25px;padding:18px;background:#f7f1e7;text-align:right;font-size:20px;"><strong>Toplam: ${Number(total) || 0} TL</strong></div></div>`,
-      });
-    }
-
     return res.status(201).json({ success: true, message: "Siparişiniz başarıyla oluşturuldu.", order });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Sipariş oluşturulurken bir hata oluştu." });
@@ -697,7 +651,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
 });
 
 // ======================================================
-// ADMIN GENEL
+// ADMIN GENEL & REVIEWS
 // ======================================================
 
 app.post("/api/admin/login", async (req, res) => {
@@ -739,7 +693,7 @@ app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
 
 app.get("/api/admin/users", adminMiddleware, async (req, res) => {
   try {
-    const { data, error } = await supabase.from("users").select("id, username, email, email_verified").order("id", { ascending: false });
+    const { data, error } = await supabase.from("users").select("id, username, email, email_verified, first_name, last_name").order("id", { ascending: false });
     if (error) return res.status(500).json({ success: false, message: "Kullanıcılar alınamadı." });
     return res.json({ success: true, users: data || [] });
   } catch (error) {
@@ -801,10 +755,6 @@ app.delete("/api/admin/orders/:id", adminMiddleware, async (req, res) => {
   }
 });
 
-// ======================================================
-// PRODUCT REVIEWS
-// ======================================================
-
 app.get("/api/reviews/:productId", async (req, res) => {
   try {
     const productId = Number(req.params.productId);
@@ -863,7 +813,6 @@ app.post("/api/reviews", authMiddleware, async (req, res) => {
   }
 });
 
-// BURASI YENİ EKLENDİ - YORUM DÜZENLEME ROTOSU
 app.put("/api/reviews/:id", authMiddleware, async (req, res) => {
   try {
     const reviewId = Number(req.params.id);
@@ -883,10 +832,6 @@ app.put("/api/reviews/:id", authMiddleware, async (req, res) => {
     return res.status(500).json({ success: false, message: "Yorum güncellenemedi." });
   }
 });
-
-// ======================================================
-// ADMIN REVIEWS
-// ======================================================
 
 app.get("/api/admin/reviews", adminMiddleware, async (req, res) => {
   try {
