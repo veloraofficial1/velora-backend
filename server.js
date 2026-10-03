@@ -172,75 +172,6 @@ app.get("/api/health", (req, res) => {
 });
 
 // ======================================================
-// PAYTR BAŞARI VE HATA YÖNLENDİRME SAYFALARI (404 ÇÖZÜMÜ)
-// ======================================================
-
-app.get("/payment-success", (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="tr">
-    <head>
-        <meta charset="UTF-8">
-        <title>Ödeme Başarılı | VELORA</title>
-        <style>
-            body { font-family: Georgia, serif; background: #f7f1e7; color: #4c3b2b; text-align: center; padding: 60px 20px; }
-            .box { max-width: 500px; margin: 0 auto; background: #fffaf3; border: 1px solid #d6c2a5; padding: 40px; border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-            h1 { color: #85633d; margin-bottom: 15px; }
-            p { margin-bottom: 25px; line-height: 1.6; }
-            a { display: inline-block; background: #b99669; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold; }
-            a:hover { background: #9f7749; }
-        </style>
-    </head>
-    <body>
-        <div class="box">
-            <h1>Ödemeniz Başarıyla Onaylandı! ✨</h1>
-            <p>VELORA'yı tercih ettiğiniz için teşekkür ederiz. Siparişiniz başarıyla alınmış olup en kısa sürede hazırlanacaktır.</p>
-            <script>
-                // Tarayıcı geçmişinden direkt ana sayfaya yönlendirme veya buton
-                document.write('<a href="' + window.location.origin + '">Ana Sayfaya Dön</a>');
-            </script>
-            <noscript>
-                <a href="/">Ana Sayfaya Dön</a>
-            </noscript>
-        </div>
-    </body>
-    </html>
-  `);
-});
-
-app.get("/payment-fail", (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="tr">
-    <head>
-        <meta charset="UTF-8">
-        <title>Ödeme Başarısız | VELORA</title>
-        <style>
-            body { font-family: Georgia, serif; background: #f7f1e7; color: #4c3b2b; text-align: center; padding: 60px 20px; }
-            .box { max-width: 500px; margin: 0 auto; background: #fffaf3; border: 1px solid #d6c2a5; padding: 40px; border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-            h1 { color: #a05243; margin-bottom: 15px; }
-            p { margin-bottom: 25px; line-height: 1.6; }
-            a { display: inline-block; background: #b99669; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold; }
-            a:hover { background: #9f7749; }
-        </style>
-    </head>
-    <body>
-        <div class="box">
-            <h1>Ödeme İşlemi Gerçekleştirilemedi</h1>
-            <p>Ödeme sırasında bir hata oluştu veya işlem iptal edildi. Lütfen tekrar deneyin.</p>
-            <script>
-                document.write('<a href="' + window.location.origin + '">Alışverişe Geri Dön</a>');
-            </script>
-            <noscript>
-                <a href="/">Alışverişe Geri Dön</a>
-            </noscript>
-        </div>
-    </body>
-    </html>
-  `);
-});
-
-// ======================================================
 // REGISTER (Ad ve Soyad Destekli)
 // ======================================================
 
@@ -751,8 +682,6 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
       .digest("base64");
 
     // 3. PayTR API'sine İstek Atma
-    const serverBaseUrl = req.protocol + "://" + req.get("host");
-
     const params = new URLSearchParams();
     params.append("merchant_id", PAYTR_MERCHANT_ID);
     params.append("user_ip", userIp);
@@ -770,8 +699,10 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
     params.append("test_mode", testMode);
     params.append("debug_on", "1");
     params.append("timeout_limit", "30");
-    params.append("merchant_ok_url", serverBaseUrl + "/payment-success");
-    params.append("merchant_fail_url", serverBaseUrl + "/payment-fail");
+    
+    // BURASI DÜZELTİLDİ: Artık ödeme bitince doğrudan GitHub Pages ana sayfasına dönecek
+    params.append("merchant_ok_url", "https://veloraofficial1.github.io");
+    params.append("merchant_fail_url", "https://veloraofficial1.github.io");
 
     const paytrResponse = await fetch("https://www.paytr.com/odeme/api/get-token", {
       method: "POST",
