@@ -803,7 +803,7 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
   }
 });
 
-// PayTR Callback
+// PayTR Callback & Otomatik Sipariş E-postası (Müşteri + Mağaza)
 app.post("/api/payment/paytr-notification", async (req, res) => {
   try {
     const postData = req.body;
@@ -825,10 +825,80 @@ app.post("/api/payment/paytr-notification", async (req, res) => {
 
     const orderStatus = postData.status === "success" ? "preparing" : "cancelled";
 
-    await supabase
+    // Siparişi veritabanında güncelle ve bilgilerini çek
+    const { data: updatedOrder, error: updateError } = await supabase
       .from("orders")
       .update({ status: orderStatus })
-      .eq("merchant_oid", postData.merchant_oid);
+      .eq("merchant_oid", postData.merchant_oid)
+      .select()
+      .maybeSingle();
+
+    if (updateError) {
+      console.error("Sipariş güncellenirken hata:", updateError);
+    }
+
+    // EĞER ÖDEME BAŞARILIYSA E-POSTALARI GÖNDER
+    if (postData.status === "success" && updatedOrder) {
+      
+      const customerEmail = updatedOrder.customer_email;
+      const storeEmail = "veloraofficial6022@gmail.com"; // MAĞAZA E-POSTANIZ
+
+      const itemsList = Array.isArray(updatedOrder.items) 
+        ? updatedOrder.items.map(i => `<li>${i.name || "Ürün"} (${i.quantity || 1} adet)</li>`).join("") 
+        : "<li>Özel Koleksiyon Ürünü</li>";
+
+      // 1. MÜŞTERİYE GİDECEK E-POSTA
+      if (customerEmail) {
+        await sendEmail({
+          to: customerEmail,
+          subject: `VELORA - Siparişiniz Alındı (#${updatedOrder.id})`,
+          html: `
+            <div style="font-family:Georgia,serif; max-width:600px; margin:auto; padding:35px; background:#fffaf3; color:#4c3b2b; border:1px solid #d6c2a5;">
+              <h1 style="color:#9b7445; text-align:center; letter-spacing:4px;">VELORA</h1>
+              <h3 style="text-align:center; color:#85633d;">Sipariş Onayı</h3>
+              <p>Sayın <strong>${updatedOrder.customer_name || "Değerli Müşterimiz"}</strong>,</p>
+              <p>VELORA'dan yapmış olduğunuz alışverişiniz başarıyla onaylandı ve ödemeniz alındı. Seçkin takılarınız sizin için özenle hazırlanmaya başlandı.</p>
+              
+              <div style="background:#f7f1e7; padding:15px; margin:20px 0; border:1px solid #e2d2be;">
+                <p><strong>Sipariş Numarası:</strong> #${updatedOrder.id}</p>
+                <p><strong>Toplam Tutar:</strong> ${updatedOrder.total} TL</p>
+                <p><strong>Teslimat Adresi:</strong> ${updatedOrder.address}</p>
+                <p><strong>Ürünler:</strong></p>
+                <ul>${itemsList}</ul>
+              </div>
+              
+              <p>Siparişinizin durumunu dilediğiniz zaman web sitemizdeki "Siparişlerim" sayfasından takip edebilirsiniz.</p>
+              <p style="margin-top:30px; text-align:center; font-size:13px; color:#806344;">Bizi tercih ettiğiniz için teşekkür ederiz.<br><strong>VELORA Ekibi</strong></p>
+            </div>
+          `,
+        }).catch(err => console.error("Müşteriye mail gönderilirken hata:", err));
+      }
+
+      // 2. SİZE (MAĞAZAYA) GİDECEK YENİ SİPARİŞ BİLDİRİM E-POSTASI
+      await sendEmail({
+        to: storeEmail,
+        subject: `[YENİ SİPARİŞ] VELORA - #${updatedOrder.id}`,
+        html: `
+          <div style="font-family:Arial,sans-serif; max-width:600px; margin:auto; padding:20px; background:#f9f9f9; color:#333; border:1px solid #ccc;">
+            <h2 style="color:#e63946;">🔔 YENİ SİPARİŞ GELDİ!</h2>
+            <p>Mağazanızdan yeni bir sipariş oluşturuldu ve ödemesi PayTR üzerinden başarıyla alındı.</p>
+            
+            <div style="background:#fff; padding:15px; margin:20px 0; border:1px solid #eee;">
+              <p><strong>Sipariş ID:</strong> #${updatedOrder.id}</p>
+              <p><strong>Müşteri:</strong> ${updatedOrder.customer_name || "Bilinmiyor"} (${customerEmail})</p>
+              <p><strong>Telefon:</strong> ${updatedOrder.customer_phone || "Belirtilmemiş"}</p>
+              <p><strong>Tutar:</strong> ${updatedOrder.total} TL</p>
+              <p><strong>Adres:</strong> ${updatedOrder.address}</p>
+              <hr style="border:0; border-top:1px solid #eee; margin:15px 0;">
+              <p><strong>Satın Alınan Ürünler:</strong></p>
+              <ul>${itemsList}</ul>
+            </div>
+            
+            <p>Siparişi hazırlamak için Supabase veya yönetim panelinize giriş yapınız.</p>
+          </div>
+        `,
+      }).catch(err => console.error("Mağazaya mail gönderilirken hata:", err));
+    }
 
     return res.send("OK");
 
