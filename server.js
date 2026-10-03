@@ -8,7 +8,7 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 
 app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true })); // PayTR bildirimleri form-urlencoded gelebilir
+app.use(express.urlencoded({ extended: true }));
 
 app.use(
   cors({
@@ -43,7 +43,6 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// PayTR Bilgileri (Render Panelinden Environment Variables olarak eklenmeli)
 const PAYTR_MERCHANT_ID = process.env.PAYTR_MERCHANT_ID;
 const PAYTR_MERCHANT_KEY = process.env.PAYTR_MERCHANT_KEY;
 const PAYTR_MERCHANT_SALT = process.env.PAYTR_MERCHANT_SALT;
@@ -172,7 +171,91 @@ app.get("/api/health", (req, res) => {
 });
 
 // ======================================================
-// REGISTER (Ad ve Soyad Destekli)
+// PAYTR BAŞARI SAYFASI (VELORA ÖZEL TASARIM)
+// ======================================================
+
+app.get("/payment-success", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sipariş Başarılı | VELORA</title>
+        <style>
+            *{margin:0;padding:0;box-sizing:border-box}
+            body{
+                font-family:Georgia,"Times New Roman",serif;
+                background:#f7f1e7;
+                color:#4c3b2b;
+                display:flex;
+                justify-content:center;
+                align-items:center;
+                min-height:100vh;
+                padding:20px;
+            }
+            .success-box{
+                width:100%;
+                max-width:520px;
+                background:#fffaf3;
+                border:1px solid #d6c2a5;
+                padding:45px 35px;
+                text-align:center;
+                box-shadow:0 15px 40px rgba(70,50,30,.12);
+                border-radius:4px;
+            }
+            .success-icon{
+                font-size:55px;
+                color:#b99669;
+                margin-bottom:15px;
+            }
+            h1{
+                color:#85633d;
+                font-size:26px;
+                margin-bottom:15px;
+                letter-spacing:1px;
+            }
+            p{
+                color:#6b5640;
+                font-size:15px;
+                line-height:1.7;
+                margin-bottom:30px;
+            }
+            .home-btn{
+                display:inline-block;
+                background:#b99669;
+                color:#fff;
+                padding:13px 30px;
+                text-decoration:none;
+                font-size:15px;
+                letter-spacing:1px;
+                border-radius:2px;
+                transition:background .3s ease;
+            }
+            .home-btn:hover{
+                background:#9f7749;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="success-box">
+            <div class="success-icon">✨</div>
+            <h1>Siparişiniz Başarıyla Alındı!</h1>
+            <p>VELORA'yı tercih ettiğiniz için teşekkür ederiz. Ödemeniz onaylandı ve seçkin takılarınız sizin için özenle hazırlanmaya başlandı. Siparişinizin durumunu hesabınızdaki "Siparişlerim" bölümünden takip edebilirsiniz.</p>
+            <script>
+                document.write('<a href="https://veloraofficial1.github.io/velora/" class="home-btn">Ana Sayfaya Dön</a>');
+            </script>
+            <noscript>
+                <a href="https://veloraofficial1.github.io/velora/" class="home-btn">Ana Sayfaya Dön</a>
+            </noscript>
+        </div>
+    </body>
+    </html>
+  `);
+});
+
+// ======================================================
+// REGISTER
 // ======================================================
 
 app.post("/api/auth/register", async (req, res) => {
@@ -632,10 +715,9 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
 
     const userId = req.user?.id;
     const cleanCustomerEmail = normalizeEmail(customerEmail || req.user?.email);
-    const paymentAmount = Math.round(Number(total) * 100); // PayTR tutarı kuruş cinsinden bekler
-    const merchantOid = "VELORA" + Date.now(); // Benzersiz sipariş numarası
+    const paymentAmount = Math.round(Number(total) * 100);
+    const merchantOid = "VELORA" + Date.now();
 
-    // 1. Siparişi veritabanına 'pending' (ödeme bekliyor) olarak kaydet
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
@@ -657,7 +739,6 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, message: "Sipariş oluşturulamadı." });
     }
 
-    // 2. PayTR Sepet Formatı Hazırlama
     const basket = items.map(item => [
       item.name || item.title || "Ürün",
       String(item.price || 0),
@@ -670,9 +751,8 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
     const noInstallment = "0";
     const maxInstallment = "0";
     const currency = "TL";
-    const testMode = "1"; // Canlıya geçince "0" yapılacak
+    const testMode = "1";
     
-    // PayTR Hash (Token) Oluşturma
     let paytrStr = PAYTR_MERCHANT_ID + userIp + merchantOid + cleanCustomerEmail + paymentAmount + userBasket + noInstallment + maxInstallment + currency + testMode;
     let tokenStr = paytrStr + PAYTR_MERCHANT_SALT;
 
@@ -681,7 +761,8 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
       .update(tokenStr)
       .digest("base64");
 
-    // 3. PayTR API'sine İstek Atma
+    const serverBaseUrl = req.protocol + "://" + req.get("host");
+
     const params = new URLSearchParams();
     params.append("merchant_id", PAYTR_MERCHANT_ID);
     params.append("user_ip", userIp);
@@ -699,10 +780,8 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
     params.append("test_mode", testMode);
     params.append("debug_on", "1");
     params.append("timeout_limit", "30");
-    
-    // BURASI DÜZELTİLDİ: Artık ödeme bitince doğrudan GitHub Pages ana sayfasına dönecek
-    params.append("merchant_ok_url", "https://veloraofficial1.github.io");
-    params.append("merchant_fail_url", "https://veloraofficial1.github.io");
+    params.append("merchant_ok_url", serverBaseUrl + "/payment-success");
+    params.append("merchant_fail_url", serverBaseUrl + "/payment-success");
 
     const paytrResponse = await fetch("https://www.paytr.com/odeme/api/get-token", {
       method: "POST",
@@ -724,7 +803,7 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
   }
 });
 
-// PayTR Callback (Bildirim) Uç Noktası
+// PayTR Callback
 app.post("/api/payment/paytr-notification", async (req, res) => {
   try {
     const postData = req.body;
@@ -760,7 +839,7 @@ app.post("/api/payment/paytr-notification", async (req, res) => {
 });
 
 // ======================================================
-// ADMIN GENEL & REVIEWS
+// ADMIN & REVIEWS
 // ======================================================
 
 app.post("/api/admin/login", async (req, res) => {
