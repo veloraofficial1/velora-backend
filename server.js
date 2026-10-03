@@ -195,7 +195,13 @@ app.get("/payment-success", (req, res) => {
         <div class="box">
             <h1>Ödemeniz Başarıyla Onaylandı! ✨</h1>
             <p>VELORA'yı tercih ettiğiniz için teşekkür ederiz. Siparişiniz başarıyla alınmış olup en kısa sürede hazırlanacaktır.</p>
-            <a href="https://veloraofficial1.github.io/">Ana Sayfaya Dön</a>
+            <script>
+                // Tarayıcı geçmişinden direkt ana sayfaya yönlendirme veya buton
+                document.write('<a href="' + window.location.origin + '">Ana Sayfaya Dön</a>');
+            </script>
+            <noscript>
+                <a href="/">Ana Sayfaya Dön</a>
+            </noscript>
         </div>
     </body>
     </html>
@@ -222,7 +228,12 @@ app.get("/payment-fail", (req, res) => {
         <div class="box">
             <h1>Ödeme İşlemi Gerçekleştirilemedi</h1>
             <p>Ödeme sırasında bir hata oluştu veya işlem iptal edildi. Lütfen tekrar deneyin.</p>
-            <a href="https://veloraofficial1.github.io/">Alışverişe Geri Dön</a>
+            <script>
+                document.write('<a href="' + window.location.origin + '">Alışverişe Geri Dön</a>');
+            </script>
+            <noscript>
+                <a href="/">Alışverişe Geri Dön</a>
+            </noscript>
         </div>
     </body>
     </html>
