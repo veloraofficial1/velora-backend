@@ -172,6 +172,64 @@ app.get("/api/health", (req, res) => {
 });
 
 // ======================================================
+// PAYTR BAŞARI VE HATA YÖNLENDİRME SAYFALARI (404 ÇÖZÜMÜ)
+// ======================================================
+
+app.get("/payment-success", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head>
+        <meta charset="UTF-8">
+        <title>Ödeme Başarılı | VELORA</title>
+        <style>
+            body { font-family: Georgia, serif; background: #f7f1e7; color: #4c3b2b; text-align: center; padding: 60px 20px; }
+            .box { max-width: 500px; margin: 0 auto; background: #fffaf3; border: 1px solid #d6c2a5; padding: 40px; border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+            h1 { color: #85633d; margin-bottom: 15px; }
+            p { margin-bottom: 25px; line-height: 1.6; }
+            a { display: inline-block; background: #b99669; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold; }
+            a:hover { background: #9f7749; }
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h1>Ödemeniz Başarıyla Onaylandı! ✨</h1>
+            <p>VELORA'yı tercih ettiğiniz için teşekkür ederiz. Siparişiniz başarıyla alınmış olup en kısa sürede hazırlanacaktır.</p>
+            <a href="https://veloraofficial1.github.io/velorabutik/">Ana Sayfaya Dön</a>
+        </div>
+    </body>
+    </html>
+  `);
+});
+
+app.get("/payment-fail", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="tr">
+    <head>
+        <meta charset="UTF-8">
+        <title>Ödeme Başarısız | VELORA</title>
+        <style>
+            body { font-family: Georgia, serif; background: #f7f1e7; color: #4c3b2b; text-align: center; padding: 60px 20px; }
+            .box { max-width: 500px; margin: 0 auto; background: #fffaf3; border: 1px solid #d6c2a5; padding: 40px; border-radius: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+            h1 { color: #a05243; margin-bottom: 15px; }
+            p { margin-bottom: 25px; line-height: 1.6; }
+            a { display: inline-block; background: #b99669; color: white; padding: 12px 25px; text-decoration: none; border-radius: 4px; font-weight: bold; }
+            a:hover { background: #9f7749; }
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h1>Ödeme İşlemi Gerçekleştirilemedi</h1>
+            <p>Ödeme sırasında bir hata oluştu veya işlem iptal edildi. Lütfen tekrar deneyin.</p>
+            <a href="https://veloraofficial1.github.io/velorabutik/">Alışverişe Geri Dön</a>
+        </div>
+    </body>
+    </html>
+  `);
+});
+
+// ======================================================
 // REGISTER (Ad ve Soyad Destekli)
 // ======================================================
 
@@ -681,7 +739,9 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
       .update(tokenStr)
       .digest("base64");
 
-    // 3. PayTR API'sine İstek Atma
+    // 3. PayTR API'sine İstek Atma (Render Backend üzerinden 404 çözümü için /payment-success ve /payment-fail yönlendirmesi)
+    const serverBaseUrl = req.protocol + "://" + req.get("host");
+
     const params = new URLSearchParams();
     params.append("merchant_id", PAYTR_MERCHANT_ID);
     params.append("user_ip", userIp);
@@ -699,8 +759,8 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
     params.append("test_mode", testMode);
     params.append("debug_on", "1");
     params.append("timeout_limit", "30");
-    params.append("merchant_ok_url", "https://veloraofficial1.github.io/odeme-basarili.html");
-    params.append("merchant_fail_url", "https://veloraofficial1.github.io/odeme-hatali.html");
+    params.append("merchant_ok_url", serverBaseUrl + "/payment-success");
+    params.append("merchant_fail_url", serverBaseUrl + "/payment-fail");
 
     const paytrResponse = await fetch("https://www.paytr.com/odeme/api/get-token", {
       method: "POST",
@@ -800,7 +860,7 @@ app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
 
 app.get("/api/admin/users", adminMiddleware, async (req, res) => {
   try {
-    const { data, error } = await supabase.from("users").select("id, username, email, email_verified, first_name, last_name").order("id", { ascending: false });
+    const { data, error } = await supabase.from("users").select("id, username, email, email_verified, first_name, last_name, created_at").order("id", { ascending: false });
     if (error) return res.status(500).json({ success: false, message: "Kullanıcılar alınamadı." });
     return res.json({ success: true, users: data || [] });
   } catch (error) {
