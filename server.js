@@ -8,6 +8,7 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 
 app.use(express.json({ limit: "2mb" }));
+app.use(express.urlencoded({ extended: true })); // PayTR bildirimleri form-urlencoded gelebilir
 
 app.use(
   cors({
@@ -42,9 +43,15 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+// PayTR Bilgileri (Render Panelinden Environment Variables olarak eklenmeli)
+const PAYTR_MERCHANT_ID = process.env.PAYTR_MERCHANT_ID;
+const PAYTR_MERCHANT_KEY = process.env.PAYTR_MERCHANT_KEY;
+const PAYTR_MERCHANT_SALT = process.env.PAYTR_MERCHANT_SALT;
+
 if (!JWT_SECRET) console.error("UYARI: JWT_SECRET environment variable bulunamadı.");
 if (!SUPABASE_URL) console.error("UYARI: SUPABASE_URL environment variable bulunamadı.");
 if (!SUPABASE_SERVICE_ROLE_KEY) console.error("UYARI: SUPABASE_SERVICE_ROLE_KEY environment variable bulunamadı.");
+if (!PAYTR_MERCHANT_ID) console.error("UYARI: PAYTR_MERCHANT_ID environment variable bulunamadı.");
 
 const supabase = createClient(
   SUPABASE_URL,
@@ -444,7 +451,7 @@ app.post("/api/auth/change-password", authMiddleware, async (req, res) => {
 });
 
 // ======================================================
-// ME (Ad ve Soyad Eklendi)
+// ME
 // ======================================================
 
 app.get("/api/auth/me", authMiddleware, async (req, res) => {
@@ -463,7 +470,7 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
 });
 
 // ======================================================
-// UPDATE PROFILE (YENİ EKLENDİ - 404 HATASINI ÇÖZER)
+// UPDATE PROFILE
 // ======================================================
 
 app.post("/api/auth/update-profile", authMiddleware, async (req, res) => {
@@ -545,7 +552,7 @@ app.delete("/api/favorites/:productId", authMiddleware, async (req, res) => {
 });
 
 // ======================================================
-// ORDERS & STATUS
+// ORDERS & PAYTR ENTEGRASYONU
 // ======================================================
 
 const VALID_ORDER_STATUSES = ["pending", "preparing", "shipped", "out_for_delivery", "delivered", "cancelled"];
@@ -614,20 +621,22 @@ app.get("/api/orders/my", authMiddleware, async (req, res) => {
   }
 });
 
-app.post("/api/orders", authMiddleware, async (req, res) => {
+// PayTR iFrame Token Oluşturma Uç Noktası
+app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
   try {
     const { customerName, customerEmail, customerPhone, address, items, total } = req.body;
+    
     if (!customerName || !customerEmail || !customerPhone || !address || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: "Sipariş bilgileri eksik." });
     }
 
     const userId = req.user?.id;
-    const userEmail = normalizeEmail(req.user?.email);
-    if (!userId) return res.status(401).json({ success: false, message: "Kullanıcı kimliği bulunamadı." });
+    const cleanCustomerEmail = normalizeEmail(customerEmail || req.user?.email);
+    const paymentAmount = Math.round(Number(total) * 100); // PayTR tutarı kuruş cinsinden bekler
+    const merchantOid = "VELORA" + Date.now(); // Benzersiz sipariş numarası
 
-    const cleanCustomerEmail = normalizeEmail(customerEmail || userEmail);
-
-    const { data: order, error } = await supabase
+    // 1. Siparişi veritabanına 'pending' (ödeme bekliyor) olarak kaydet
+    const { data: order, error: orderError } = await supabase
       .from("orders")
       .insert({
         user_id: userId,
@@ -638,15 +647,113 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
         items: items,
         total: Number(total) || 0,
         status: "pending",
+        merchant_oid: merchantOid
       })
       .select()
       .single();
 
-    if (error) return res.status(500).json({ success: false, message: "Sipariş oluşturulamadı." });
+    if (orderError) {
+      console.error("Sipariş kayıt hatası:", orderError);
+      return res.status(500).json({ success: false, message: "Sipariş oluşturulamadı." });
+    }
 
-    return res.status(201).json({ success: true, message: "Siparişiniz başarıyla oluşturuldu.", order });
+    // 2. PayTR Sepet Formatı Hazırlama
+    const basket = items.map(item => [
+      item.name || item.title || "Ürün",
+      String(item.price || 0),
+      Number(item.quantity || 1)
+    ]);
+
+    const userIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
+    const userBasket = Buffer.from(JSON.stringify(basket)).toString("base64");
+    
+    const noInstallment = "0";
+    const maxInstallment = "0";
+    const currency = "TL";
+    const testMode = "1"; // Canlıya geçince "0" yapılacak
+    
+    // PayTR Hash (Token) Oluşturma
+    let paytrStr = PAYTR_MERCHANT_ID + userIp + merchantOid + cleanCustomerEmail + paymentAmount + userBasket + noInstallment + maxInstallment + currency + testMode;
+    let tokenStr = paytrStr + PAYTR_MERCHANT_SALT;
+
+    const paytrToken = crypto
+      .createHmac("sha256", PAYTR_MERCHANT_KEY)
+      .update(tokenStr)
+      .digest("base64");
+
+    // 3. PayTR API'sine İstek Atma
+    const params = new URLSearchParams();
+    params.append("merchant_id", PAYTR_MERCHANT_ID);
+    params.append("user_ip", userIp);
+    params.append("merchant_oid", merchantOid);
+    params.append("email", cleanCustomerEmail);
+    params.append("payment_amount", paymentAmount);
+    params.append("paytr_token", paytrToken);
+    params.append("user_basket", userBasket);
+    params.append("user_name", customerName);
+    params.append("user_address", address);
+    params.append("user_phone", customerPhone);
+    params.append("no_installment", noInstallment);
+    params.append("max_installment", maxInstallment);
+    params.append("currency", currency);
+    params.append("test_mode", testMode);
+    params.append("debug_on", "1");
+    params.append("timeout_limit", "30");
+    params.append("merchant_ok_url", "https://veloraofficial1.github.io/odeme-basarili.html");
+    params.append("merchant_fail_url", "https://veloraofficial1.github.io/odeme-hatali.html");
+
+    const paytrResponse = await fetch("https://www.paytr.com/odeme/api/get-token", {
+      method: "POST",
+      body: params
+    });
+
+    const result = await paytrResponse.json();
+
+    if (result.status === "success") {
+      return res.json({ success: true, token: result.token, merchantOid });
+    } else {
+      console.error("PayTR Token Hatası:", result.reason);
+      return res.status(400).json({ success: false, message: "Ödeme başlatılamadı: " + result.reason });
+    }
+
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Sipariş oluşturulurken bir hata oluştu." });
+    console.error("PayTR endpoint genel hata:", error);
+    return res.status(500).json({ success: false, message: "Ödeme işlemi sırasında bir hata oluştu." });
+  }
+});
+
+// PayTR Callback (Bildirim) Uç Noktası
+app.post("/api/payment/paytr-notification", async (req, res) => {
+  try {
+    const postData = req.body;
+    
+    if (!postData.merchant_oid || !postData.status || !postData.hash) {
+      return res.status(400).send("PAYTR notification failed: missing data");
+    }
+
+    const hashStr = postData.merchant_oid + PAYTR_MERCHANT_SALT + postData.status + postData.total_amount;
+    const generatedHash = crypto
+      .createHmac("sha256", PAYTR_MERCHANT_KEY)
+      .update(hashStr)
+      .digest("base64");
+
+    if (generatedHash !== postData.hash) {
+      console.error("PayTR Hash doğrulama başarısız!");
+      return res.status(400).send("PAYTR notification failed: bad hash");
+    }
+
+    const orderStatus = postData.status === "success" ? "preparing" : "cancelled";
+
+    await supabase
+      .from("orders")
+      .update({ status: orderStatus })
+      .eq("merchant_oid", postData.merchant_oid);
+
+    return res.send("OK");
+
+  } catch (error) {
+    console.error("PayTR Bildirim Hatası:", error);
+    return res.status(500).send("FAIL");
   }
 });
 
