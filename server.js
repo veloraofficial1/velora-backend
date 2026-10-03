@@ -195,7 +195,7 @@ app.get("/payment-success", (req, res) => {
         <div class="box">
             <h1>Ödemeniz Başarıyla Onaylandı! ✨</h1>
             <p>VELORA'yı tercih ettiğiniz için teşekkür ederiz. Siparişiniz başarıyla alınmış olup en kısa sürede hazırlanacaktır.</p>
-            <a href="https://veloraofficial1.github.io/velorabutik/">Ana Sayfaya Dön</a>
+            <a href="https://veloraofficial1.github.io/">Ana Sayfaya Dön</a>
         </div>
     </body>
     </html>
@@ -222,7 +222,7 @@ app.get("/payment-fail", (req, res) => {
         <div class="box">
             <h1>Ödeme İşlemi Gerçekleştirilemedi</h1>
             <p>Ödeme sırasında bir hata oluştu veya işlem iptal edildi. Lütfen tekrar deneyin.</p>
-            <a href="https://veloraofficial1.github.io/velorabutik/">Alışverişe Geri Dön</a>
+            <a href="https://veloraofficial1.github.io/">Alışverişe Geri Dön</a>
         </div>
     </body>
     </html>
@@ -739,7 +739,7 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
       .update(tokenStr)
       .digest("base64");
 
-    // 3. PayTR API'sine İstek Atma (Render Backend üzerinden 404 çözümü için /payment-success ve /payment-fail yönlendirmesi)
+    // 3. PayTR API'sine İstek Atma
     const serverBaseUrl = req.protocol + "://" + req.get("host");
 
     const params = new URLSearchParams();
