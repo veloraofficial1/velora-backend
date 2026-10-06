@@ -751,7 +751,7 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
     const noInstallment = "0";
     const maxInstallment = "0";
     const currency = "TL";
-    const testMode = "1";
+    const testMode = "0"; // CANLI MOD AKTİF EDİLDİ
     
     let paytrStr = PAYTR_MERCHANT_ID + userIp + merchantOid + cleanCustomerEmail + paymentAmount + userBasket + noInstallment + maxInstallment + currency + testMode;
     let tokenStr = paytrStr + PAYTR_MERCHANT_SALT;
