@@ -715,8 +715,33 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
 
     const userId = req.user?.id;
     const cleanCustomerEmail = normalizeEmail(customerEmail || req.user?.email);
-    const paymentAmount = Math.round(Number(total) * 100);
+    
+    // --- KARGO HESAPLAMA BÖLÜMÜ BAŞLANGICI ---
+    let subtotal = Number(total) || 0;
+    const shippingThreshold = 1500; // 1500 TL üzeri kargo bedava
+    const defaultShippingCost = 79.90; // Kargo ücretini buradan ayarlayabilirsiniz (79.90 TL olarak güncellendi)
+    let appliedShippingCost = 0;
+
+    // Eğer sepet toplamı 1500'den küçükse kargo ücretini ekle
+    if (subtotal < shippingThreshold) {
+      appliedShippingCost = defaultShippingCost;
+    }
+
+    const finalTotal = subtotal + appliedShippingCost;
+    const paymentAmount = Math.round(finalTotal * 100); 
+    // --- KARGO HESAPLAMA BÖLÜMÜ BİTİŞİ ---
+
     const merchantOid = "VELORA" + Date.now();
+
+    // Veritabanına kaydedilecek sipariş listesi (Kargo eklendiyse listeye dahil et)
+    const orderItemsForDb = [...items];
+    if (appliedShippingCost > 0) {
+      orderItemsForDb.push({
+        name: "Kargo Ücreti",
+        price: appliedShippingCost,
+        quantity: 1
+      });
+    }
 
     const { data: order, error: orderError } = await supabase
       .from("orders")
@@ -726,8 +751,8 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
         customer_email: cleanCustomerEmail,
         customer_phone: String(customerPhone).trim(),
         address: String(address).trim(),
-        items: items,
-        total: Number(total) || 0,
+        items: orderItemsForDb, // Kargolu listeyi veritabanına yaz
+        total: finalTotal,      // Kargo dahil olan yeni fiyatı yaz
         status: "pending",
         merchant_oid: merchantOid
       })
@@ -739,11 +764,17 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
       return res.status(500).json({ success: false, message: "Sipariş oluşturulamadı." });
     }
 
+    // PayTR için Sepet (Basket) Formatı
     const basket = items.map(item => [
       item.name || item.title || "Ürün",
       String(item.price || 0),
       Number(item.quantity || 1)
     ]);
+
+    // Eğer kargo ücreti uygulandıysa, bunu PayTR sepetine sanal bir ürün olarak ekle
+    if (appliedShippingCost > 0) {
+      basket.push(["Kargo Ücreti", String(appliedShippingCost), 1]);
+    }
 
     const userIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
     const userBasket = Buffer.from(JSON.stringify(basket)).toString("base64");
@@ -751,7 +782,7 @@ app.post("/api/payment/paytr-token", authMiddleware, async (req, res) => {
     const noInstallment = "0";
     const maxInstallment = "0";
     const currency = "TL";
-    const testMode = "0"; // CANLI MOD AKTİF EDİLDİ
+    const testMode = "0"; // CANLI MOD AÇIK KALDI
     
     let paytrStr = PAYTR_MERCHANT_ID + userIp + merchantOid + cleanCustomerEmail + paymentAmount + userBasket + noInstallment + maxInstallment + currency + testMode;
     let tokenStr = paytrStr + PAYTR_MERCHANT_SALT;
