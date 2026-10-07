@@ -1015,7 +1015,7 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
 });
 
 // ======================================================
-// KARGO TAKİP VE OTOMATİK E-POSTA GÖNDERİM KISMI
+// KARGO TAKİP VE OTOMATİK E-POSTA GÖNDERİM KISMI (VERİTABANI ALTERNATİFİ)
 // ======================================================
 async function updateAdminOrderStatus(req, res) {
   try {
@@ -1026,18 +1026,33 @@ async function updateAdminOrderStatus(req, res) {
     const normalizedStatus = normalizeOrderStatus(status);
     if (!VALID_ORDER_STATUSES.includes(normalizedStatus)) return res.status(400).json({ success: false, message: "Geçersiz sipariş durumu." });
 
-    const updateData = { status: normalizedStatus };
-    if (tracking_number !== undefined) {
-      updateData.tracking_number = tracking_number;
+    // Mevcut siparişi çekiyoruz
+    const { data: existingOrder } = await supabase.from("orders").select("*").eq("id", id).single();
+    if (!existingOrder) return res.status(404).json({ success: false, message: "Sipariş bulunamadı." });
+
+    let updatedAddress = existingOrder.address;
+    if (tracking_number && normalizedStatus === "shipped") {
+      // Eğer daha önce kargo takip no eklendiyse temizleyip yenisini ekleyelim veya direkt ekleyelim
+      const baseAddress = existingOrder.address.split(" [Kargo Takip No:")[0];
+      updatedAddress = `${baseAddress} [Kargo Takip No: ${tracking_number}]`;
     }
 
-    const { data, error } = await supabase.from("orders").update(updateData).eq("id", id).select().single();
+    const { data, error } = await supabase
+      .from("orders")
+      .update({ 
+        status: normalizedStatus,
+        address: updatedAddress
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
     if (error) return res.status(500).json({ success: false, message: "Sipariş durumu güncellenemedi." });
 
-    // EĞER DURUM "KARGOYA VERİLDİ" İSE VE MÜŞTERİ MAİLİ VARSA OTOMATİK MAİL AT
+    // EĞER DURUM "KARGOYA VERİLDİ" İSE MÜŞTERİYE E-POSTA GÖNDER
     if (normalizedStatus === "shipped" && data.customer_email) {
       const customerName = data.customer_name || "Değerli Müşterimiz";
-      const trackingNo = tracking_number || data.tracking_number || "Belirtilmedi";
+      const trackingNo = tracking_number || "Belirtilmedi";
       const orderId = data.id;
 
       const htmlTemplate = `
@@ -1074,7 +1089,6 @@ async function updateAdminOrderStatus(req, res) {
         </div>
       `;
 
-      // Mevcut Brevo sendEmail fonksiyonunuzu kullanarak kargo mailini atıyoruz
       await sendEmail({
         to: data.customer_email,
         subject: "Siparişiniz Kargoya Verildi ✨",
