@@ -1014,16 +1014,73 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
   }
 });
 
+// ======================================================
+// KARGO TAKİP VE OTOMATİK E-POSTA GÖNDERİM KISMI
+// ======================================================
 async function updateAdminOrderStatus(req, res) {
   try {
     const { id } = req.params;
-    const { status } = req.body || {};
+    const { status, tracking_number } = req.body || {};
+    
     if (!status) return res.status(400).json({ success: false, message: "Durum gereklidir." });
     const normalizedStatus = normalizeOrderStatus(status);
     if (!VALID_ORDER_STATUSES.includes(normalizedStatus)) return res.status(400).json({ success: false, message: "Geçersiz sipariş durumu." });
 
-    const { data, error } = await supabase.from("orders").update({ status: normalizedStatus }).eq("id", id).select().single();
+    const updateData = { status: normalizedStatus };
+    if (tracking_number !== undefined) {
+      updateData.tracking_number = tracking_number;
+    }
+
+    const { data, error } = await supabase.from("orders").update(updateData).eq("id", id).select().single();
     if (error) return res.status(500).json({ success: false, message: "Sipariş durumu güncellenemedi." });
+
+    // EĞER DURUM "KARGOYA VERİLDİ" İSE VE MÜŞTERİ MAİLİ VARSA OTOMATİK MAİL AT
+    if (normalizedStatus === "shipped" && data.customer_email) {
+      const customerName = data.customer_name || "Değerli Müşterimiz";
+      const trackingNo = tracking_number || data.tracking_number || "Belirtilmedi";
+      const orderId = data.id;
+
+      const htmlTemplate = `
+        <div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; border: 1px solid #dfccb2; background-color: #fffdf9; color: #4c3b2b;">
+            <div style="background-color: #f7f1e7; padding: 20px; text-align: center; border-bottom: 1px solid #d6c2a5;">
+                <h1 style="color: #9b7445; letter-spacing: 5px; margin: 0;">VELORA</h1>
+            </div>
+            
+            <div style="padding: 30px 20px; text-align: center;">
+                <h2 style="color: #85633d; margin-bottom: 15px;">Müjde! Siparişiniz Kargoya Verildi ✨</h2>
+                
+                <p style="line-height: 1.6; font-size: 15px;">Merhaba <strong>${customerName}</strong>,</p>
+                <p style="line-height: 1.6; font-size: 15px;">
+                    Zarif seçimleriniz özenle paketlendi ve yola çıktı. Tarzınıza ışıltı katacak olan takılarınıza çok yakında kavuşacaksınız.
+                </p>
+                
+                <div style="background-color: #f7efe3; padding: 15px; margin: 25px 0; border: 1px dashed #d9c5a9;">
+                    <p style="margin: 0; font-size: 14px;"><strong>Sipariş Numarası:</strong> #${orderId}</p>
+                    <p style="margin: 8px 0 0 0; font-size: 14px;"><strong>Kargo Takip No:</strong> ${trackingNo}</p>
+                </div>
+                
+                <p style="line-height: 1.6; font-size: 15px; margin-top: 30px; margin-bottom: 25px;">
+                    Bizi tercih ettiğiniz için teşekkür ederiz. Işıltınızı bizimle paylaşmayı ve yeni koleksiyonlardan haberdar olmayı unutmayın!
+                </p>
+                
+                <a href="https://instagram.com/veloraa.butik" target="_blank" style="display: inline-block; padding: 12px 25px; background-color: #b99669; color: #ffffff; text-decoration: none; font-weight: bold; border-radius: 3px; font-size: 14px;">
+                    Instagram'da Bizi Takip Edin (@veloraa.butik)
+                </a>
+            </div>
+            
+            <div style="background-color: #4d3b2a; color: #f5e9d8; text-align: center; padding: 15px; font-size: 12px;">
+                © 2026 VELORA — Tüm Hakları Saklıdır.
+            </div>
+        </div>
+      `;
+
+      // Mevcut Brevo sendEmail fonksiyonunuzu kullanarak kargo mailini atıyoruz
+      await sendEmail({
+        to: data.customer_email,
+        subject: "Siparişiniz Kargoya Verildi ✨",
+        html: htmlTemplate
+      }).catch(err => console.error("Kargo maili gönderilemedi:", err));
+    }
 
     return res.json({ success: true, message: "Sipariş durumu güncellendi.", order: { ...data, status: normalizeOrderStatus(data.status), statusLabel: ORDER_STATUS_LABELS[normalizedStatus] } });
   } catch (error) {
